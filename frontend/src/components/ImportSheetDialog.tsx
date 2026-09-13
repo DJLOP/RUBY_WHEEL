@@ -69,6 +69,24 @@ export function ImportSheetDialog({ pos, setPos, onClose, onApply, gameSystem, c
     runPreview(form, true);
   };
 
+  /**
+   * A Characters Without Number export, which is a file rather than something anyone would
+   * paste - theirs run to a thousand lines. Read here rather than uploaded so the existing
+   * JSON route handles it: the server recognises their format and flattens it, and an
+   * ordinary JSON export still goes the way it always did.
+   */
+  const handleJson = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || '').trim();
+      if (!text) return setError('That file was empty');
+      try { JSON.parse(text); } catch { return setError('That file is not valid JSON'); }
+      runPreview(JSON.stringify({ json: text }), false);
+    };
+    reader.onerror = () => setError('Could not read that file');
+    reader.readAsText(file);
+  };
+
   const handlePaste = () => {
     const text = pasted.trim();
     if (!text) return;
@@ -158,6 +176,38 @@ export function ImportSheetDialog({ pos, setPos, onClose, onApply, gameSystem, c
         >
           ↓ DOWNLOAD BLANK FORM
         </a>
+        {/* CWN only: Characters Without Number builds Cities Without Number characters, so
+            offering it under another system would be a button that could only ever fail -
+            the same reasoning as the Companion below. An ADDITION rather than a
+            replacement: the PDF above, the Companion below and a plain JSON or stat-block
+            paste all work exactly as they did. */}
+        {gameSystem === 'cities_without_number' && (
+          <>
+            <div style={{ ...label9, opacity: 0.5, textAlign: 'center' }}>— OR A CharWN EXPORT —</div>
+            <label style={{ ...label9, color: 'var(--cyan)', border: '1px solid var(--cyan)', padding: '6px 8px', textAlign: 'center', cursor: 'pointer' }}>
+              <input
+                type="file"
+                accept="application/json,.json"
+                style={{ display: 'none' }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleJson(f); e.target.value = ''; }}
+              />
+              UPLOAD CharWN JSON
+            </label>
+            <div style={{ ...label9, opacity: 0.5, textAlign: 'center', lineHeight: 1.5 }}>
+              Build one at{' '}
+              <a
+                href="https://characterswithoutnumber.app/"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--cyan)', textDecoration: 'underline' }}
+              >characterswithoutnumber.app</a>
+              {' '}and export it, then upload the file here.
+              <br />
+              Brings attributes, skills, weapons, chrome and inventory. Hit points, AC and
+              cash live elsewhere in this app and are reported rather than written.
+            </div>
+          </>
+        )}
         {/* Cyberpunk only: the Companion is a Cyberpunk tool, and offering this under
             another system would be a button that could only ever fail. */}
         {gameSystem === 'cyberpunk_red' && (

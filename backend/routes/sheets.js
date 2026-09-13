@@ -9,6 +9,7 @@ const {
   TOKEN_SOURCES, rangedAcOf, acColumns,
 } = require('../sheets/templates');
 const sheetImporters = require('../sheets/importers');
+const charwn = require('../sheets/charwn');
 const pdfTemplate = require('../sheets/pdfTemplate');
 const companionFetch = require('../sheets/companionFetch');
 const { rateLimit } = require('../middleware/rateLimit');
@@ -262,8 +263,17 @@ module.exports = (db, io) => {
           source = 'pdf-form';
           if (!raw) return res.status(422).json({ error: 'PDF has no fillable form fields. Copy the character text and paste it instead.' });
         } else if (req.body && req.body.json) {
-          raw = typeof req.body.json === 'string' ? JSON.parse(req.body.json) : req.body.json;
-          source = 'json';
+          const parsed = typeof req.body.json === 'string' ? JSON.parse(req.body.json) : req.body.json;
+          // A Characters Without Number export is a Foundry actor with their own block
+          // inside it, so it is flattened into the same candidates a filled-in form
+          // produces and mapped by the ordinary importer - see sheets/charwn.js.
+          if (charwn.isCharwnExport(parsed)) {
+            raw = charwn.toCandidates(parsed);
+            source = 'charwn';
+          } else {
+            raw = parsed;
+            source = 'json';
+          }
         } else if (req.body && req.body.text) {
           raw = importer.parseText(String(req.body.text));
           source = 'text';
