@@ -4,6 +4,10 @@ import { PharmaSection } from './PharmaSection';
 import { consumable, takeDoseFromRow, hasPharma, activeDrugs } from '../sheets/cwnPharma';
 import { readInventory } from '../sheets/inventory';
 import {
+  hasSkillplugs, plugLevel as plugFor, loadable, loadFromRow,
+  isLocked as plugsLocked, clearCrash, running as plugsRunning, unload as unloadPlug,
+} from '../sheets/cwnSkillplugs';
+import {
   sheetEffects, effectiveValue, describeSources,
   type SheetEffects, type FieldEffect,
 } from '../sheets/cyberwareEffects';
@@ -707,6 +711,66 @@ function SheetHeaderBlock({ template, data, portraitUrl, onPortraitUpload, portr
             player onto every tab. A drug wears off at the end of a scene and bills System
             Strain for it; a reminder that only exists on GEAR is one somebody is going to
             walk past. Draws nothing at all while a character is on nothing. */}
+        {/* What is loaded, and the way back out. A plug is not spent, so unloading returns
+            nothing to the inventory - the cylinder was never used up. */}
+        {hasSkillplugs(template.id) && plugsRunning(data).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+            {plugsRunning(data).map((plug) => (
+              <span
+                key={plug.skill}
+                title={`Skillplug: grants ${plug.skill.replace(/_/g, ' ')} at level-${plug.level} while loaded. Each plug past the first widens the automatic failure band by one.`}
+                style={{
+                  border: '1px solid var(--cyan)', color: 'var(--cyan)',
+                  fontSize: '0.6rem', letterSpacing: '1px',
+                  padding: '1px 4px 1px 6px', display: 'inline-flex', alignItems: 'center', gap: '5px',
+                  background: 'color-mix(in srgb, var(--cyan) 12%, transparent)',
+                }}
+              >
+                {plug.skill.replace(/_/g, ' ').toUpperCase()}-{plug.level}
+                {!readOnly && onFieldsChange && (
+                  <button
+                    type="button"
+                    aria-label={`Unload ${plug.skill}`}
+                    onClick={() => onFieldsChange(unloadPlug(data, plug.skill))}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--danger)',
+                      cursor: 'pointer', padding: 0, fontSize: '0.75rem', lineHeight: 1,
+                    }}
+                  >×</button>
+                )}
+              </span>
+            ))}
+            {plugsRunning(data).length > 1 && (
+              <span style={{ fontSize: '0.6rem', opacity: 0.7, alignSelf: 'center' }}>
+                {plugsRunning(data).length} plugs — checks crash on {1 + plugsRunning(data).length} or less, attacks on {plugsRunning(data).length}
+              </span>
+            )}
+          </div>
+        )}
+        {/* A crashed jack is a state the player has to see: their skills are quietly lower
+            until it comes back, and nothing else on the sheet says so. In the header for
+            the same reason the drug strip is - it follows them onto every tab. */}
+        {hasSkillplugs(template.id) && plugsLocked(data) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+            <span
+              title="A natural 2 on a plug-augmented check, or a natural 1 on an attack, locks the jack for the scene (p64). Whatever is loaded grants nothing until it comes back."
+              style={{
+                border: '1px solid var(--danger)', color: 'var(--danger)',
+                fontSize: '0.6rem', letterSpacing: '1px', padding: '1px 6px',
+                background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
+              }}
+            >PLUG JACK DOWN</span>
+            {!readOnly && onFieldsChange && (
+              <button
+                type="button"
+                className="utility-btn"
+                style={{ fontSize: '0.6rem', padding: '2px 10px', whiteSpace: 'nowrap' }}
+                onClick={() => onFieldsChange(clearCrash())}
+                title="The scene has ended - the jack comes back up and whatever is loaded works again."
+              >REBOOT JACK</button>
+            )}
+          </div>
+        )}
         {hasPharma(template.id) && (activeDrugs(data).length > 0 || pharmaUndo) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {activeDrugs(data).length > 0 && (
@@ -1216,13 +1280,21 @@ function SkillsSection({ section, data, readOnly, onFieldChange, onRoll, effects
         // The chrome's level and stat, not the typed ones: this is the number you roll
         // with, and the server resolves the roll the same way. A skill that reads 3 here
         // and rolls at 9 is worse than showing nothing.
-        const lvl = effectiveValue(effects, field.id, data[field.id]);
+        const chromed = effectiveValue(effects, field.id, data[field.id]);
+        // A loaded skillplug grants the skill while it is in (p64), and the server resolves
+        // the roll the same way - so the BASE has to say so, or the sheet reads 0 for a
+        // skill that rolls at 1 and the plug looks broken.
+        const plugged = plugFor(data, field.id);
+        const lvl = plugged === null ? chromed : Math.max(chromed, plugged);
         const base = lvl + (field.stat ? effectiveValue(effects, field.stat, data[field.stat]) : 0);
         const boost = effects.fields[field.id];
         return (
           <div key={field.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '1px 4px', background: lvl > 0 ? 'color-mix(in srgb, var(--black) 45%, transparent)' : 'transparent' }}>
             <span style={{ flex: 1, fontSize: '0.68rem', opacity: lvl > 0 ? 1 : 0.6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {field.label}{lvl > 0 ? ' ●' : ''}
+              {plugged !== null && (
+                <span style={{ color: 'var(--cyan)' }} title={`Skillplug: granted at level-${plugged} while it is loaded`}> ⏺</span>
+              )}
             </span>
             {boost && boost.delta !== 0 && <ChromeBadge effect={boost} />}
             <input
@@ -1811,6 +1883,20 @@ export function SheetRenderer({ template, data, readOnly = false, onFieldChange,
    * and reaching a Stowed item is another (p48), so a dose you have not readied is not one
    * you can take this turn. The disabled button says exactly that.
    */
+  const loadAction: RowAction | undefined = useMemo(() => {
+    if (!hasSkillplugs(template.id) || !onFieldsChange) return undefined;
+    return {
+      label: 'LOAD',
+      applies: (item) => loadable(data, item).plug !== null,
+      enabled: (item) => loadable(data, item).ok,
+      title: (item) => loadable(data, item).why,
+      onAct: (index) => {
+        const fields = loadFromRow(data, index);
+        if (fields) onFieldsChange(fields);
+      },
+    };
+  }, [template.id, data, onFieldsChange]);
+
   const consumeAction: RowAction | undefined = useMemo(() => {
     if (!hasPharma(template.id) || !onFieldsChange) return undefined;
     return {
@@ -1906,7 +1992,7 @@ export function SheetRenderer({ template, data, readOnly = false, onFieldChange,
                   {section.layout === 'weapons' && <WeaponsSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onFieldsChange={onFieldsChange} />}
                   {section.layout === 'spells' && <SpellsSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onCastSpell={onCastSpell} />}
                   {section.layout === 'ability_list' && <AbilityListSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onRollAbility={onRollAbility} onResistDrain={onResistDrain} />}
-                  {section.layout === 'inventory' && <InventorySection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} rowAction={consumeAction} />}
+                  {section.layout === 'inventory' && <InventorySection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} rowActions={[consumeAction, loadAction].filter(Boolean) as RowAction[]} />}
                   {section.layout === 'weapon_stash' && <WeaponStashSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onFieldsChange={onFieldsChange} rows={weaponRows} />}
                   {section.layout === 'encumbrance' && <EncumbranceSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} enforced={encumbranceEnforced} />}
                   {section.layout === 'cyberware' && <CyberwareSection section={section} template={template} data={data} readOnly={readOnly} onFieldChange={onFieldChange} />}

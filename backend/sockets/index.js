@@ -10,6 +10,7 @@ const sheetAttack = require('../sheets/attack');
 const cyberEffects = require('../sheets/cyberwareEffects');
 const attackCwn = require('../sheets/attackCwn');
 const cwnPharma = require('../sheets/cwnPharma');
+const skillplugs = require('../sheets/cwnSkillplugs');
 const awardXpModule = require('../sheets/awardXp');
 const tokenControl = require('./tokenControl');
 const attackSr6 = require('../sheets/attackSr6');
@@ -1408,7 +1409,12 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
             let outcome;
             let statField = null;
             try {
-              const resolved = rollEngine.resolveFormula(rollDef.formula, data, { allowNoDice: rollDef.shape === 'pool' });
+              // Skillplugs grant a skill while they are loaded (p64), overlaid on read the
+              // way the chrome is, so the roll uses the better of the plug and what the
+              // character earned. `withPlugs` hands back the same object when nothing is
+              // running, so every other system and every unplugged character is untouched.
+              const rollData = system === 'cities_without_number' ? skillplugs.withPlugs(data) : data;
+              const resolved = rollEngine.resolveFormula(rollDef.formula, rollData, { allowNoDice: rollDef.shape === 'pool' });
               // First @field in the formula is the governing stat (armor
               // penalty applies to REF/DEX checks)
               const firstField = rollEngine.parseFormula(rollDef.formula).find(t => t.kind === 'field');
@@ -1419,11 +1425,20 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
               // breakdown says where the bonus came from.
               resolved.modifiers.push(...cyberEffects.formulaModifiers(data, rollDef.formula, system));
               outcome = rollEngine.executeRoll(resolved, rollDef.shape, Math.random, { noFumble });
+              // The price of borrowed expertise. A natural 2 on a plug-augmented check is
+              // an automatic failure "that no reroll ability can save", and the jack locks
+              // up for the scene - so this overrides the total rather than modifying it,
+              // and is deliberately checked AFTER the LUCK shield, which cannot save it.
+              if (system === 'cities_without_number'
+                  && skillplugs.crashes(data, 'skill', skillplugs.naturalOf(outcome, 'skill'))) {
+                outcome = { ...outcome, critical: 'failure', plugCrash: true };
+              }
             } catch (e) {
               return;
             }
             const luck = spend.total;
-            const critTag = outcome.critical === 'success' ? ' — CRITICAL!'
+            const critTag = outcome.plugCrash ? ' — PLUG CRASH: AUTOMATIC FAILURE, JACK DOWN FOR THE SCENE'
+              : outcome.critical === 'success' ? ' — CRITICAL!'
               : outcome.critical === 'failure' ? ' — FUMBLE!' : '';
             const luckTag = (spend.bonus > 0 ? ` (LUCK +${spend.bonus})` : '')
               + (spend.negate ? ' (LUCK: FUMBLE SHIELD)' : '');
@@ -1431,6 +1446,14 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
               : hp !== null && Number(data.seriously_wounded) > 0 && hp <= Number(data.seriously_wounded) ? ' (WOUNDED -2)' : '';
             const historyString =
               `${identity.displayName(info.userName)} rolled ${rollDef.label} [${outcome.breakdown} = ${outcome.total}]${luckTag}${woundTag}${critTag}`;
+            // A crashed jack is down for the scene, so it has to outlive this roll.
+            if (outcome.plugCrash) {
+              patchSheet(
+                db, row.id,
+                { [skillplugs.LOCKED_FIELD]: true },
+                () => io.emit('sheetUpdated', { username: info.userName, system })
+              );
+            }
             // Spend the declared LUCK
             if (luck > 0) {
               // A subtraction, so it is computed against what the sheet says now rather
@@ -2176,12 +2199,28 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
               db.get(`SELECT value FROM global_settings WHERE key = 'cwn_trauma'`, (tErr, tRow) => {
                 const traumaOn = tErr || !tRow || tRow.value !== '0'; // default ON
                 let toHit;
-                try { toHit = attackCwn.rollToHit(attackerData, weapon, undefined, { penalty: firePenalty }); } catch (e) { return; }
-                const hit = toHit.total >= ac;
+                // A loaded plug grants the weapon's skill for as long as it is in (p64),
+                // overlaid on read like the chrome.
+                const plugged = skillplugs.withPlugs(attackerData);
+                try { toHit = attackCwn.rollToHit(plugged, weapon, undefined, { penalty: firePenalty }); } catch (e) { return; }
+                // "A natural 1 on a skillplug-augmented attack roll is an automatic failure
+                // that no reroll ability can save", and the jack locks for the scene. The
+                // total is left alone in the breakdown so the table can see what it would
+                // have been; what changes is whether it landed.
+                const plugCrash = skillplugs.crashes(attackerData, 'attack', skillplugs.naturalOf(toHit, 'attack'));
+                if (plugCrash) {
+                  patchSheet(
+                    db, sheetRow.id,
+                    { [skillplugs.LOCKED_FIELD]: true },
+                    () => io.emit('sheetUpdated', { username: info.userName, system })
+                  );
+                }
+                const hit = !plugCrash && toHit.total >= ac;
                 const hitHistory =
                   `${identity.displayName(info.userName)} attacks ${target.name} with ${weapon.name} ` +
                   (firePenalty ? 'from a moving vehicle ' : '') +
-                  `[${toHit.breakdown} = ${toHit.total} vs AC ${ac}${acNote}] — ${hit ? 'HIT' : 'MISS'}`;
+                  `[${toHit.breakdown} = ${toHit.total} vs AC ${ac}${acNote}] — ${hit ? 'HIT' : 'MISS'}`
+                  + (plugCrash ? ' — PLUG CRASH: JACK DOWN FOR THE SCENE' : '');
 
                 const emitResult = makeEmitResult(info, target, weapon, {
                   hit, roll: toHit.total, ac,

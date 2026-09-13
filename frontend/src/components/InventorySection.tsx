@@ -54,10 +54,13 @@ interface Props {
   data: SheetData;
   readOnly: boolean;
   onFieldChange: (fieldId: string, value: SheetFieldValue) => void;
-  rowAction?: RowAction;
+  /** Buttons the rows may carry. The first that applies to a row is the one drawn, so a
+   *  drug offers CONSUME and a skillplug offers LOAD without either knowing about the
+   *  other. */
+  rowActions?: RowAction[];
 }
 
-export function InventorySection({ section, data, readOnly, onFieldChange, rowAction }: Props) {
+export function InventorySection({ section, data, readOnly, onFieldChange, rowActions }: Props) {
   const items = readInventory(data);
   // Encumbrance is Cities Without Number's. A system with no carrying rule gets the table
   // without the column, rather than a rule invented for it.
@@ -69,7 +72,10 @@ export function InventorySection({ section, data, readOnly, onFieldChange, rowAc
 
   // The action column is only laid out when something actually uses it, so a system with
   // no per-row button loses no width to an empty column.
-  const showAction = !readOnly && !!rowAction && items.some((it) => rowAction.applies(it));
+  /** The button a row gets, if any. */
+  const actionFor = (item: InventoryItem): RowAction | undefined =>
+    readOnly ? undefined : (rowActions ?? []).find((a) => a.applies(item));
+  const showAction = items.some((it) => actionFor(it) !== undefined);
   const columns = [
     '1fr', '48px',
     ...(showEnc ? ['48px', '28px'] : []),
@@ -156,19 +162,21 @@ export function InventorySection({ section, data, readOnly, onFieldChange, rowAc
                 onChange={(e) => patch(i, { location: e.target.value })}
                 style={input}
               />
-              {showAction && (
-                rowAction!.applies(item) ? (
+              {showAction && (() => {
+                const action = actionFor(item);
+                if (!action) return <div />;
+                return (
                   <button
                     type="button"
-                    aria-label={`${rowAction!.label} ${item.name}`}
+                    aria-label={`${action.label} ${item.name}`}
                     className="utility-btn"
-                    disabled={!rowAction!.enabled(item)}
-                    title={rowAction!.title(item)}
-                    onClick={() => rowAction!.onAct(i)}
+                    disabled={!action.enabled(item)}
+                    title={action.title(item)}
+                    onClick={() => action.onAct(i)}
                     style={{ fontSize: '0.55rem', padding: '1px 6px', whiteSpace: 'nowrap' }}
-                  >{rowAction!.label}</button>
-                ) : <div />
-              )}
+                  >{action.label}</button>
+                );
+              })()}
               {!readOnly && (
                 <button
                   type="button"
