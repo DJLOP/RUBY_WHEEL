@@ -9,6 +9,130 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.12.0] - 2026-09-15
+
+Cities Without Number, finished. Every gap the rulebook audit found is closed: armor that
+actually soaks, the two Armor Classes the book prints, three tables of modifications, a
+countable inventory, encumbrance, experience, the drug table, skillplugs — and an import
+form that finally asks for all of it.
+
+**Nothing on an existing sheet changes meaning.** Every new field is blank on sheets
+written before it, and blank keeps reading the way it always did: a weapon with no Melee AC
+defends at its ranged value, a weapon nobody has filed as Readied or Stowed is neither, and
+an armor with no Damage Soak soaks nothing. Two free-text boxes are retired rather than
+deleted — see *Changed*.
+
+### Added
+
+- **Armor soaks damage before you do.** The book's Damage Soak column was printed on every
+  armor and modelled nowhere, so an armored character was over-damaged on every hit — up to
+  15 points a scene in a heavy suit. Damage now comes off the soak first, with a REFILL
+  button on the pool, because only the table knows when a scene ends.
+
+- **Armor has two Armor Classes, because the book gives it two.** A War Harness is 13
+  against ranged and 14 against melee. The sheet had one number and wrote it to both, so
+  whenever they differed one of your defences was wrong and the app was deciding hits with
+  it. Shields split the same way.
+
+- **Three tables of modifications, all applied rather than printed.** All 11 armor mods and
+  13 weapon mods (p58-59), and all 10 cyberware mods (p71) fitted per implant. Everything is
+  overlaid when a roll is made and never written into the sheet, so taking a mod off gives
+  back exactly what it gave. The +3 ceiling on hit and damage is enforced, and the line
+  under each list says when you are over it and what will actually be rolled.
+
+- **Weapons have their own attribute, and body weaponry is a weapon.** Str, Dex, Str/Dex,
+  Wis or none, with a pair taking whichever is better at the time. Cyber blades carried a
+  name and a strain cost and no stats, so a character who had paid for them attacked as if
+  they had not; they now appear in the attack picker with the damage and skill they will
+  really roll.
+
+- **A character's Move rate is worked out and shown.** The book does not derive Move from an
+  attribute, which is worth saying because everyone assumes it does — it is a flat 10m, and
+  exactly one implant adds to it.
+
+- **Experience, and a way to hand it out.** An EXP bar under the HP bar, filling from what
+  this level cost toward the next. AWARD_EXPERIENCE in the admin panel gives points per
+  character rather than splitting a pot, since dividing experience would mean a full party
+  earned less each than a pair. The advancement rate is a house rule, not a per-character
+  field: one table advances at one pace.
+
+- **Encumbrance, counted always and charged only where asked.** A READIED/STOWED line at the
+  top of GEAR on every sheet, and a house rule — off by default — that turns the Move
+  penalty on. The book is explicit that these rules are optional, so the count is shown
+  either way.
+
+- **A countable inventory, on every system.** Structured rows with quantities, replacing the
+  free-text Gear box that could describe ammunition but never add it up. Cities Without
+  Number gets an Encumbrance column and the book's bundling rule, so six stims cost 2 rather
+  than 6.
+
+- **Weapons come from the catalogue, with a stash for what you are not carrying.** 32
+  weapons with their real damage, trauma, shock and Encumbrance. The stash holds what you
+  own but have not got on you: no Encumbrance, a location note, and one move each way.
+
+- **Shops sell things.** The gun shop stocks weapons and the clinic stocks the drug table —
+  no charging, the same way the ripperdoc works. Sortable headers, an OWNED column that
+  reads your sheet, and a refusal that says why when a weapon will not fit.
+
+- **The whole pharmaceutical table (p60-61), and the three drugs that change a roll.**
+  Boneshaker, Olympus and Avalanche are modelled; the other thirteen carry the book's own
+  sentence for the table to rule on. Doses are inventory rows, CONSUME is on the row, and
+  what is running sits in the sheet header where it follows you onto every tab. Multiple
+  drugs take the highest bonus and pay every price, which is the book's own disincentive.
+
+- **Skillplugs (p64), and the price the book attaches to them.** A plug grants a skill while
+  it is loaded, taken as the better of the plug and what you earned. The cost is enforced:
+  the worst the dice can do becomes an automatic failure no reroll can save, and the jack
+  locks up for the scene. Each plug past the first widens that band.
+
+- **Languages, and the allowance that pays for them.** Thirty-four real languages grouped by
+  region, plus typed entry — the two a character starts with are their city's tongue and
+  their enclave's, both invented per campaign, so no fixed list could ever hold them.
+
+- **Import a Characters Without Number export** (characterswithoutnumber.app). An additional
+  way in, beside the fillable PDF, the Companion code and a pasted stat block — none of
+  which change. Brings attributes, skills, weapons, chrome and inventory; hit points, AC and
+  cash live elsewhere in this app and are reported rather than written.
+
+### Changed
+
+- **The downloadable import form now asks for what the sheet holds.** It went from 103 boxes
+  to 332, and two of the gaps were much older than this release: it had never printed a
+  SKILLS section at all — nineteen skills, no boxes, while the importer had understood every
+  one of them since it was written — and it offered four weapon rows for a sheet that holds
+  six. Both now come from the same source the rest of the app uses, so neither can fall
+  behind again.
+
+- **Two free-text boxes are retired rather than deleted.** The Gear box and, on Cities
+  Without Number, Weapon Notes. Both still show whatever was typed into them and disappear
+  once emptied, so nothing is lost and nobody new is handed a box that something else
+  replaced. The importer and the printed form still accept both.
+
+- **A raised attribute moves everything hanging off it.** Modifiers, saving throws, the
+  System Strain maximum and every skill that keys off it.
+
+### Fixed
+
+- **Derived fields were computed when a sheet was saved and never when it was read**, so a
+  sheet last saved before a field existed carried nothing for it — and an empty number reads
+  as 0, which is a wrong answer rather than an absent one. Every character read MOVE 0.
+
+- **No number field on any sheet could be given a negative by typing.** Every system, every
+  sheet; it only surfaced on MOVE MOD, where negatives are the point.
+
+- **A Cities Without Number rule was discounting Cyberpunk RED's Humanity Loss.** One
+  system's table had reached another's numbers.
+
+- **Installing cyberware charged the undiscounted strain**, so a piece the sheet had just
+  said there was room for was refused.
+
+- **The test suite failed about one run in three under load, somewhere unrelated to whatever
+  was being changed.** Fourteen files slept a fixed number of milliseconds waiting for
+  database work and then asserted. They now wait for the work itself, which is both correct
+  and faster.
+
+---
+
 ## [1.11.6] - 2026-09-02
 
 A clearer way to put buildings in districts, and friendly NPCs a GM can let players move.
