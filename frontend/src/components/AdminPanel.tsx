@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BUILDING_TYPES, shopsAvailable } from '../data/buildingTypes';
+import { xpAvailable } from './XpWindow';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { isUserDefinedName, getStructLabel } from '../utils/locationHelpers';
@@ -44,7 +45,7 @@ import { parseGrant, describeGrant } from '../utils/tokenControl';
 function BattleAdminPanel({
   token, isDeployingEnemy, setIsDeployingEnemy, isDeployingFriendly, setIsDeployingFriendly,
   tempBattleMapScale, setTempBattleMapScale, activeBattleMapData, locations, refreshLocations,
-  handleSaveDefault, handleLoadDefault, setIsAdminPayOpen, secureModeEnabled, onLogout,
+  handleSaveDefault, handleLoadDefault, setIsAdminPayOpen, setIsAdminXpOpen, secureModeEnabled, onLogout,
   globalSettings, fetchGlobalSettings, onOpenNpcLibrary, activeUsers,
 }: any) {
   const [tab, setTab] = useState<'battle_map' | 'game'>('battle_map');
@@ -182,7 +183,7 @@ export function AdminPanel({
   isCopyingSize, setIsCopyingSize, isAdmin, isPrimaryAdmin, setShowBattleMapManager,
   isPlantingTrees, setIsPlantingTrees, treeBatchSize, setTreeBatchSize, userName,
     isDeployingEnemy, setIsDeployingEnemy, isDeployingFriendly, setIsDeployingFriendly, handleSaveDefault, handleLoadDefault,
-    tempCityMapScale, setTempCityMapScale, globalSettings, fetchGlobalSettings, tempBattleMapScale, setTempBattleMapScale, activeBattleMapData, setIsAdminPayOpen,
+    tempCityMapScale, setTempCityMapScale, globalSettings, fetchGlobalSettings, tempBattleMapScale, setTempBattleMapScale, activeBattleMapData, setIsAdminPayOpen, setIsAdminXpOpen,
     secureModeEnabled, currentLocBattleMaps, enterBattleMap,
     signs, fetchSigns, remoteFonts, setRemoteFonts, isPlacingSign, setIsPlacingSign, pendingSignPos, setPendingSignPos, selectedSignId, setSelectedSignId, signTransformMode, setSignTransformMode, signTransformActive, setSignTransformActive, handleUpdateSign, signMesh,
     activeUsers, onGrantAccess, onRevokeAccess, onOpenNpcLibrary, onToggleHidden,
@@ -199,7 +200,7 @@ export function AdminPanel({
         tempBattleMapScale={tempBattleMapScale} setTempBattleMapScale={setTempBattleMapScale}
         activeBattleMapData={activeBattleMapData} locations={locations} refreshLocations={refreshLocations}
         handleSaveDefault={handleSaveDefault} handleLoadDefault={handleLoadDefault}
-        setIsAdminPayOpen={setIsAdminPayOpen} secureModeEnabled={secureModeEnabled} onLogout={onLogout}
+        setIsAdminPayOpen={setIsAdminPayOpen} setIsAdminXpOpen={setIsAdminXpOpen} secureModeEnabled={secureModeEnabled} onLogout={onLogout}
         globalSettings={globalSettings} fetchGlobalSettings={fetchGlobalSettings}
         onOpenNpcLibrary={onOpenNpcLibrary} activeUsers={activeUsers}
       />
@@ -1054,6 +1055,15 @@ export function AdminPanel({
                 </div>
               </div>
               <button onClick={() => setIsAdminPayOpen(true)} className="utility-btn" style={{ width: '100%', marginTop: '10px' }}>PAY_PLAYERS</button>
+              {/* Beside PAY_PLAYERS because it is the same gesture at the end of a
+                  session, and deliberately named for what it does: that one splits a pot,
+                  this one gives each character the same number.
+                  Hidden where the system has no experience at all - Cyberpunk RED spends
+                  Improvement Points and Shadowrun spends Karma - rather than offering a
+                  button whose only outcome is a window saying no. */}
+              {xpAvailable(globalSettings['game_system']) && (
+                <button onClick={() => setIsAdminXpOpen(true)} className="utility-btn" style={{ width: '100%', marginTop: '5px' }}>AWARD_EXPERIENCE</button>
+              )}
               <BankSoundsPanel token={token} globalSettings={globalSettings} fetchGlobalSettings={fetchGlobalSettings} />
               <div style={{marginTop: '10px', borderTop: '1px solid var(--green)', paddingTop: '10px'}}>
                 <button className="utility-btn danger-btn" style={{width: '100%'}} onClick={() => setPurgeConfirm({ label: 'CLEAR ALL CHAT HISTORY?', onConfirm: async () => { await fetch('/api/chat/purge', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } }); } })}>PURGE_CHAT_HISTORY</button>
@@ -2140,6 +2150,16 @@ const CWN_HOUSE_RULES: HouseRuleDef[] = [
     label: 'GRITTY COMBAT (TRAUMA DIE + MAJOR INJURIES)',
     title: 'Gritty Combat: on a hit, roll the weapon\'s trauma die — if it meets the target\'s Trauma Target the damage is multiplied. Also enables the Major Injury flow when a traumatic hit drops a PC to 0 HP. On by default. Off = plain hit/damage + shock only.',
     defaultOn: true,
+  },
+  {
+    settingKey: 'cwn_slow_advancement',
+    label: 'SLOW ADVANCEMENT',
+    title: "House rule: the book prints two XP columns and tells the table to pick one (p44). Off = FAST, which reaches level 2 at 3 XP and level 10 at 93. On = SLOW, 6 and 139 - suited to a long-running game. The whole table advances on one column, so this is set once here rather than on each sheet.",
+  },
+  {
+    settingKey: 'cwn_encumbrance',
+    label: 'ENCUMBRANCE',
+    title: "House rule: what a character carries comes off their Move - 30% over the limits, 50% a step past that (p48). Off by default, and the book agrees: it says outright that some tables prefer not to use these rules. The count is shown at the top of GEAR either way; this decides whether it costs anything.",
   },
   {
     settingKey: 'cwn_deluxe',

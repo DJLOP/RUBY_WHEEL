@@ -18,8 +18,10 @@ import userEvent from '@testing-library/user-event';
 import { CyberwareWindow } from '../CyberwareWindow';
 import { getTemplate } from '../../sheets';
 import { typesFor, CWN_TYPES, CPR_TYPES } from '../../sheets/cyberwareLocations';
+import { readRows, totalHumanityLoss, totalStrain } from '../../sheets/cyberwareRows';
 import { sheetEffects } from '../../sheets/cyberwareEffects';
 import { shopsAvailable } from '../../data/buildingTypes';
+import { xpAvailable } from '../XpWindow';
 
 const CWN = getTemplate('cities_without_number');
 const CPR = getTemplate('cyberpunk_red');
@@ -133,12 +135,83 @@ describe('shops are Cities Without Number only', () => {
   });
 });
 
+describe('the ranged AC link is CWN alone', () => {
+  const sourcesOf = (t: typeof CPR) =>
+    t.sections.flatMap((s) => (s.fields ?? []).map((f) => f.source)).filter(Boolean);
+
+  it('is declared by CWN and by nobody else', () => {
+    // A template that links only `token_ac` means both token columns by it, which is
+    // what a system with one Armor Class means. Declaring the ranged link is what
+    // splits them, so it must not appear on a sheet whose rules do not split.
+    expect(sourcesOf(CWN)).toContain('token_ac_ranged');
+    for (const t of [CPR, SR6, GENERIC]) {
+      expect(sourcesOf(t)).not.toContain('token_ac_ranged');
+    }
+  });
+});
+
+describe('gear mods are Cities Without Number only', () => {
+  const fieldsOf = (t: typeof CPR) => t.sections.flatMap((s) => s.fields ?? []);
+
+  it('puts a mod list on no other system, on armor or on a weapon', () => {
+    for (const t of [CPR, SR6, GENERIC]) {
+      const ids = fieldsOf(t).map((f) => f.id);
+      expect(ids.filter((id) => /_mods$/.test(id) || id === 'armor_mods')).toEqual([]);
+    }
+  });
+
+  it('puts one on every CWN weapon row, and on the armor', () => {
+    // Guards the guard: a renamed field would make the test above pass for free.
+    const ids = fieldsOf(CWN).map((f) => f.id);
+    expect(ids).toContain('armor_mods');
+    for (let i = 1; i <= 4; i += 1) expect(ids).toContain(`weapon${i}_mods`);
+  });
+
+  const FITTED = {
+    armor_soak: 8, armor_soak_total: 8, trauma_target: 6, armor_trauma_mod: 0,
+    armor_mods: JSON.stringify(['absorption_pads', 'active_response']),
+  };
+
+  it('leaves the other systems no deriver to run mods through', () => {
+    // Armor mods reach soak and Trauma Target through the CWN recompute, which is the only
+    // recompute the effects engine has. A system with none cannot be touched by them even
+    // if a sheet somehow carried an armor_mods value, and none of them gains a soak field
+    // it does not have.
+    const data = { ...sheet([piece([{ kind: 'stat', target: 'Cool', value: 3 }])], { cool: 5 }), ...FITTED };
+    for (const t of [CPR, SR6, GENERIC]) {
+      const ids = Object.keys(sheetEffects(data as never, t).fields);
+      expect(ids).not.toContain('armor_soak_total');
+      expect(ids).not.toContain('trauma_target');
+    }
+  });
+
+  it('keeps the mods through the chrome overlay, on CWN', async () => {
+    // The other half of the same guard, and the reason the recompute has to know about
+    // armor mods: the overlay rebuilds the derived layer from an augmented copy of the
+    // sheet, so a recompute blind to the mods would quietly drop the five points the pads
+    // add the moment a character installed any chrome at all.
+    //
+    // Read off the server, which is what the sheet displays and what resolves an attack.
+    const backend = await import('../../../../backend/sheets/cyberwareEffects.js');
+    const data = {
+      ...sheet([piece([{ kind: 'stat', target: 'Constitution', value: 2 }], 'nerve')], { con: 10, con_mod: 0 }),
+      ...FITTED,
+    };
+    const eff = backend.default.effectiveData(data, 'cities_without_number');
+    expect(eff.con).toBe(12);              // the chrome landed
+    expect(eff.armor_soak_total).toBe(13); // and the mods survived it
+    expect(eff.trauma_target).toBe(7);
+  });
+});
+
 describe('CWN fields exist on no other sheet', () => {
   const idsOf = (t: typeof CPR) =>
     t.sections.flatMap((s) => (s.fields ?? []).map((f) => f.id));
 
   it('keeps Lifestyle, TT Mod and Trauma Target off the other templates', () => {
-    const cwnOnly = ['strain_mod', 'armor_trauma_mod', 'trauma_target', 'system_strain'];
+    const cwnOnly = ['strain_mod', 'armor_trauma_mod', 'trauma_target', 'system_strain',
+      'soak_current', 'armor_soak', 'armor_ac_melee', 'shield_bonus_melee', 'ac_ranged',
+      'armor_soak_total', 'armor_mods'];
     for (const t of [CPR, SR6, GENERIC]) {
       for (const id of cwnOnly) expect(idsOf(t)).not.toContain(id);
     }
@@ -147,8 +220,183 @@ describe('CWN fields exist on no other sheet', () => {
   it('still has them on the CWN sheet', () => {
     // Guards the guard: a typo in the ids above would make the test above pass for free.
     const ids = idsOf(CWN);
-    for (const id of ['strain_mod', 'armor_trauma_mod', 'trauma_target', 'system_strain']) {
+    for (const id of ['strain_mod', 'armor_trauma_mod', 'trauma_target', 'system_strain',
+      'soak_current', 'armor_soak', 'armor_ac_melee', 'shield_bonus_melee', 'ac_ranged',
+      'armor_soak_total', 'armor_mods']) {
       expect(ids).toContain(id);
     }
+  });
+});
+
+describe('the p71 cyberware mod table stays in Cities Without Number', () => {
+  /**
+   * A row carrying a p71 mod id under another system's sheet.
+   *
+   * Not reachable by clicking - the picker below is CWN-only - but reachable by a
+   * hand-edited sheet or a character moved between systems, and the maths that reads the
+   * field is shared. The rule is that another game's discount must not touch Humanity.
+   */
+  const withMod = [{
+    name: 'Neural Link', type: 'neural', side: null, hl: 3, cost: null,
+    placed: true, equipped: true, mods: [], cyberMods: ['tailored_interface'],
+  }];
+
+  const openWindow = (template: typeof CPR) => render(
+    <CyberwareWindow
+      data={sheet(withMod, { con: 20 })} template={template}
+      onFieldChange={vi.fn()} onClose={vi.fn()} who="nyx"
+    />,
+  );
+
+  it('does not discount Humanity on a Cyberpunk RED sheet', () => {
+    // The bleed this was written for: rowStrain applied to every system took a CP:R
+    // character's Humanity Loss from 3 to 2 by a rule from a different book.
+    expect(totalHumanityLoss(readRows(sheet(withMod)))).toBe(3);
+    // And CWN, where the rule is real, still gets its point back.
+    expect(totalStrain(readRows(sheet(withMod)))).toBe(2);
+  });
+
+  it('offers no fitting picker outside CWN', async () => {
+    for (const t of [CPR, SR6, GENERIC]) {
+      const { unmount } = openWindow(t);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit Neural Link' }));
+      expect(screen.queryByRole('combobox', { name: 'Fit a cyberware mod' })).toBeNull();
+      unmount();
+    }
+  });
+
+  it('offers it on CWN, so the test above is not passing for free', async () => {
+    openWindow(CWN);
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Neural Link' }));
+    expect(screen.getByRole('combobox', { name: 'Fit a cyberware mod' })).toBeInTheDocument();
+  });
+
+  it('shows neither the chip nor the discounted cost outside CWN', () => {
+    for (const t of [CPR, SR6, GENERIC]) {
+      const { unmount } = openWindow(t);
+      expect(screen.queryByText('TAILORED INTERFACE')).toBeNull();
+      expect(screen.queryByTitle(/from its fitted mods/)).toBeNull();
+      unmount();
+    }
+  });
+
+  it('shows both on CWN', () => {
+    openWindow(CWN);
+    expect(screen.getAllByText('TAILORED INTERFACE').length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle(/from its fitted mods/).length).toBeGreaterThan(0);
+  });
+});
+
+describe('concealment is rated by Cities Without Number only', () => {
+  /**
+   * CWN gives every implant one of four ratings; Cyberpunk RED rates none. A CONC column
+   * on a CP:R sheet would be a row of dashes claiming a stat that game has no rule for,
+   * and a picker for it would invite someone to fill it in.
+   */
+  const rated = [{
+    name: 'Neural Link', type: 'neural', side: null, hl: 2, cost: null,
+    placed: true, equipped: true, conc: 'touch', mods: [], cyberMods: [],
+  }];
+
+  const openWindow = (template: typeof CPR) => render(
+    <CyberwareWindow
+      data={sheet(rated, { con: 20 })} template={template}
+      onFieldChange={vi.fn()} onClose={vi.fn()} who="nyx"
+    />,
+  );
+
+  it('shows no CONC column outside CWN', async () => {
+    for (const t of [CPR, SR6, GENERIC]) {
+      const { unmount } = openWindow(t);
+      expect(screen.queryByRole('columnheader', { name: /CONC/ })).toBeNull();
+      unmount();
+    }
+  });
+
+  it('offers no concealment picker outside CWN', async () => {
+    for (const t of [CPR, SR6, GENERIC]) {
+      const { unmount } = openWindow(t);
+      await userEvent.click(screen.getByRole('button', { name: 'Edit Neural Link' }));
+      expect(screen.queryByLabelText('Concealment')).toBeNull();
+      unmount();
+    }
+  });
+
+  it('shows both on CWN, so the two above are not passing for free', async () => {
+    openWindow(CWN);
+    expect(screen.getByRole('columnheader', { name: /CONC/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Neural Link' }));
+    expect(screen.getByLabelText('Concealment')).toBeInTheDocument();
+  });
+});
+
+describe("this session's CWN work reaches no other system", () => {
+  /**
+   * One place to answer "is that gated?" without reading four files.
+   *
+   * The sheet fields, the experience window and the house rule are all Cities Without
+   * Number. What is deliberately NOT gated is the renderer work underneath them - the
+   * radio control, custom tag entry, full-width fields, negatives in number boxes - which
+   * are improvements to the shared sheet engine and belong to every system.
+   */
+  const idsOf = (t: typeof CPR) => t.sections.flatMap((s) => (s.fields ?? []).map((f) => f.id));
+
+  const CWN_ONLY_FIELDS = [
+    'move_mod',                   // Move rate's manual modifier
+    'languages',                  // Languages
+    'xp',                         // Experience
+    'weapon1_carry', 'weapon2_carry', 'weapon3_carry', 'weapon4_carry', // Readied/Stowed
+  ];
+
+  // `move` is deliberately absent from that list, and it is the interesting case: both
+  // CWN and Cyberpunk RED have a field with that id and they are different stats. CWN's
+  // is derived in meters from a flat base plus chrome; CP:R's is an attribute the player
+  // sets and its own rules multiply. Sharing an id is safe because templates are
+  // per-system, but only while neither borrows the other's behaviour - which is what the
+  // test below actually checks.
+
+  it('puts none of the new fields on another system', () => {
+    for (const t of [CPR, SR6, GENERIC]) {
+      for (const id of CWN_ONLY_FIELDS) expect(idsOf(t), `${t.id}: ${id}`).not.toContain(id);
+    }
+  });
+
+  it('puts all of them on CWN, so the guard above is not passing for free', () => {
+    for (const id of CWN_ONLY_FIELDS) expect(idsOf(CWN), id).toContain(id);
+  });
+
+  it('gives the experience bar to CWN alone', () => {
+    expect(CWN.header?.xpBar).toBeTruthy();
+    for (const t of [CPR, SR6, GENERIC]) expect(t.header?.xpBar, t.id).toBeUndefined();
+  });
+
+  it('offers the experience window on CWN alone', () => {
+    expect(xpAvailable('cities_without_number')).toBe(true);
+    for (const s of ['cyberpunk_red', 'shadowrun_6e', 'generic', '', null, undefined]) {
+      expect(xpAvailable(s), String(s)).toBe(false);
+    }
+  });
+
+  it('keeps the two MOVE fields apart, which share an id and mean different things', () => {
+    const fieldOf = (t: typeof CPR) =>
+      t.sections.flatMap((sec) => sec.fields ?? []).find((f) => f.id === 'move');
+    // CWN's is computed from the base 10m and the chrome.
+    expect(fieldOf(CWN)?.derived).toBe(true);
+    // Cyberpunk RED's is an attribute somebody types, and must not pick up a derivation
+    // from another game's book.
+    expect(fieldOf(CPR)?.derived).toBeUndefined();
+    // And nobody else has one at all.
+    for (const t of [SR6, GENERIC]) expect(fieldOf(t), t.id).toBeUndefined();
+  });
+
+  it('leaves the shared renderer work available to everyone', () => {
+    // The other half of the answer. These are sheet-engine improvements, not CWN rules,
+    // and gating them would mean four copies of a control instead of one.
+    const cprFields = idsOf(CPR);
+    expect(cprFields.length).toBeGreaterThan(0);
+    // Cyberpunk RED keeps its own MOVE, which shares an id with CWN's and is a different
+    // stat - typed by the player, not derived from anything.
+    const cprMove = CPR.sections.flatMap((s) => s.fields ?? []).find((f) => f.id === 'move');
+    expect(cprMove?.derived).toBeUndefined();
   });
 });

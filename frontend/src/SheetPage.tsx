@@ -76,7 +76,7 @@ export default function SheetPage() {
     return () => { s.disconnect(); };
   }, [userName, playerToken, adminToken]);
 
-  const { sheet, template, handleFieldChange, handleFieldsChange, allowFumbleShield, hiddenTabs, actions } =
+  const { sheet, template, handleFieldChange, handleFieldsChange, allowFumbleShield, xpRate, encumbranceEnforced, hiddenTabs, actions } =
     usePlayerSheet(socket, userName);
 
   const handlePortraitUpload = useCallback(
@@ -96,7 +96,11 @@ export default function SheetPage() {
       fontFamily: 'monospace', display: 'flex', justifyContent: 'center', padding: '20px 16px',
       boxSizing: 'border-box',
     }}>
-      <div style={{ width: '100%', maxWidth: '900px', display: 'flex', flexDirection: 'column' }}>
+      {/* Fills the tab rather than sitting in a 900px column with the rest of a monitor
+          empty either side - this page exists BECAUSE someone wanted more room than the
+          in-app window gives. The cap is only there to stop an ultrawide stretching a
+          notes box to a line nobody can read the end of. */}
+      <div style={{ width: '100%', maxWidth: '1600px', display: 'flex', flexDirection: 'column' }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           borderBottom: '1px solid var(--green)', paddingBottom: '8px', marginBottom: '4px',
@@ -129,6 +133,8 @@ export default function SheetPage() {
               onRoll={actions.onRoll}
               onDeathSave={actions.onDeathSave}
               onStabilize={actions.onStabilize}
+              xpRate={xpRate}
+              encumbranceEnforced={encumbranceEnforced}
               onCastSpell={actions.onCastSpell}
               onRollAbility={actions.onRollAbility}
               onResistDrain={actions.onResistDrain}

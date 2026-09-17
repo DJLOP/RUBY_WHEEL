@@ -183,8 +183,29 @@ describe('the import form', () => {
     // fields like CWN's token AC are understood and deliberately routed elsewhere rather
     // than written into sheet JSON, which is not the same as being lost.
     expect(Object.keys(unmapped)).toEqual([]);
-    expect(Object.keys(mapped).length + Object.keys(skipped).length)
-      .toBeGreaterThanOrEqual(labels.length);
+    // Most boxes become a field each, but some tables are gathered: CP:R's twelve
+    // cyberware lines and CWN's four stash rows each collapse into one JSON array, and
+    // their transport fields are dropped on the way. So the count cannot be compared to
+    // the label count directly - the assertion that matters is `unmapped` being empty
+    // above, plus the gathered arrays actually arriving.
+    expect(Object.keys(mapped).length + Object.keys(skipped).length).toBeGreaterThan(0);
+  });
+
+  it.each(SYSTEMS)('%s loses nothing to the gather step', (system) => {
+    // A gathered table has to produce its array. Without this, deleting the transport
+    // fields and never writing the array would pass the check above in silence.
+    const labels = labelsFor(system);
+    const filled = Object.fromEntries(labels.map((l) => [l, 'x']));
+    const { mapped } = getImporter(system).mapFields(filled);
+    const gathered = {
+      cyberpunk_red: [],           // chrome is gathered by the socket, not the mapper
+      cities_without_number: ['weapons_stash'],
+      shadowrun_6e: [],
+    }[system];
+    for (const field of gathered) {
+      expect(mapped[field], field).toBeTruthy();
+      expect(JSON.parse(mapped[field]).length, field).toBeGreaterThan(0);
+    }
   });
 
   it.each(SYSTEMS)('%s names each box once', (system) => {
@@ -227,6 +248,145 @@ describe('the import form', () => {
     expect(mapped.vehicle1_hp_max).toBe(50);
     expect(mapped.vehicle1_hp).toBe(50);
     expect(mapped.vehicle1_crew).toBe(4);
+  });
+
+  it('brings a CWN armor block in whole, pool included', async () => {
+    // Damage Soak is spent in play and written back, so a sheet arriving from paper has
+    // no "current" to state. Naming the armor's rating fills the pool as well, the way
+    // System Strain Max already seeds System Strain.
+    const doc = await PDFDocument.load(await buildTemplate('cities_without_number'));
+    const form = doc.getForm();
+    form.getTextField('Name').setText('Kestrel');
+    form.getTextField('Armor Name').setText('Impact Jacket');
+    form.getTextField('Damage Soak').setText('8');
+    form.getTextField('TT Mod').setText('1');
+    form.getTextField('Lifestyle').setText('-1');
+
+    const raw = await extractPdfFields(Buffer.from(await doc.save()));
+    const { mapped, unmapped } = getImporter('cities_without_number').mapFields(raw);
+
+    expect(unmapped).toEqual({});
+    expect(mapped.armor_soak).toBe(8);
+    expect(mapped.soak_current).toBe(8);
+    expect(mapped.armor_trauma_mod).toBe(1);
+    expect(mapped.strain_mod).toBe(-1);
+  });
+
+  it('keeps a stated soak pool rather than refilling it', () => {
+    // A JSON export mid-scene says both numbers. The max seed must not overwrite the one
+    // that is already there, or importing a save would hand back armor that was spent.
+    const { mapped } = getImporter('cities_without_number')
+      .mapFields({ 'Damage Soak': '10', SoakCurrent: '3' });
+    expect(mapped.armor_soak).toBe(10);
+    expect(mapped.soak_current).toBe(3);
+  });
+
+  it('brings both ACs of a piece of armor in', async () => {
+    // The book prints ranged first, which is the column `Armor AC` has always been.
+    const doc = await PDFDocument.load(await buildTemplate('cities_without_number'));
+    const form = doc.getForm();
+    form.getTextField('Armor Name').setText('War Harness');
+    form.getTextField('Armor AC').setText('13');
+    form.getTextField('Armor Melee AC').setText('14');
+    form.getTextField('Shield').setText('2');
+    form.getTextField('Shield Melee').setText('4');
+
+    const raw = await extractPdfFields(Buffer.from(await doc.save()));
+    const { mapped, unmapped } = getImporter('cities_without_number').mapFields(raw);
+
+    expect(unmapped).toEqual({});
+    expect(mapped.armor_ac).toBe(13);
+    expect(mapped.armor_ac_melee).toBe(14);
+    expect(mapped.shield_bonus).toBe(2);
+    expect(mapped.shield_bonus_melee).toBe(4);
+  });
+
+  it('leaves the melee AC alone on a sheet that names only one', async () => {
+    // Every CWN sheet written before the split. Blank means "the same both ways",
+    // and importing must not invent a number that changes how the character defends.
+    const { mapped } = getImporter('cities_without_number').mapFields({ 'Armor AC': '16' });
+    expect(mapped.armor_ac).toBe(16);
+    expect(mapped.armor_ac_melee).toBeUndefined();
+  });
+
+  it('matches the words the book prints in the weapon columns', async () => {
+    // The player fills the form from the book, so Attr arrives as "Str/Dex" and Skill as
+    // "Shoot". A near miss is not a visible error - the weapon quietly stops rolling that
+    // attribute, or stops resolving at all - so the words are matched rather than left to
+    // the player to guess our spelling.
+    const map = (raw) => getImporter('cities_without_number').mapFields(raw).mapped;
+    expect(map({ Weapon1Attr: 'Str/Dex' }).weapon1_attr).toBe('str_dex');
+    expect(map({ Weapon1Attr: 'Dex' }).weapon1_attr).toBe('dex');
+    expect(map({ Weapon1Attr: 'Wis' }).weapon1_attr).toBe('wis');
+    expect(map({ Weapon1Skill: 'Shoot' }).weapon1_skill).toBe('shoot');
+    expect(map({ Weapon1Skill: 'Melee' }).weapon1_skill).toBe('stab');
+  });
+
+  it("reads the book's dash as no attribute named", async () => {
+    // A dash in the Attr column means the weapon has none, which on the sheet is the
+    // same blank that means "take it from the skill".
+    const { mapped } = getImporter('cities_without_number').mapFields({ Weapon1Attr: '-' });
+    expect(mapped.weapon1_attr).toBeUndefined();
+  });
+
+  it('leaves a word it does not know for the player to see', async () => {
+    // Rather than guessing. A value that reaches the sheet unrecognised falls back to the
+    // skill's attribute at roll time, so nothing breaks - but it is visible and fixable.
+    const { mapped } = getImporter('cities_without_number').mapFields({ Weapon1Attr: 'banana' });
+    expect(mapped.weapon1_attr).toBe('banana');
+  });
+
+  it('carries a whole weapon row through the form', async () => {
+    const doc = await PDFDocument.load(await buildTemplate('cities_without_number'));
+    const form = doc.getForm();
+    form.getTextField('Weapon1Name').setText('Knife');
+    form.getTextField('Weapon1Dmg').setText('1d4');
+    form.getTextField('Weapon1Skill').setText('Stab');
+    form.getTextField('Weapon1Attr').setText('Str/Dex');
+    form.getTextField('Weapon1Trauma').setText('d6/x3');
+    form.getTextField('Weapon1Shock').setText('1/15');
+
+    const raw = await extractPdfFields(Buffer.from(await doc.save()));
+    const { mapped, unmapped } = getImporter('cities_without_number').mapFields(raw);
+
+    expect(unmapped).toEqual({});
+    expect(mapped.weapon1_name).toBe('Knife');
+    expect(mapped.weapon1_skill).toBe('stab');
+    expect(mapped.weapon1_attr).toBe('str_dex');
+    expect(mapped.weapon1_shock).toBe('1/15');
+  });
+
+  it('turns typed mod names into the ids the sheet stores', async () => {
+    // The form gives one text box per weapon, so what arrives is what the player copied
+    // off the page. Matched against the right table of the two: the book prints a
+    // Customized for armor and another for weapons, and they are different mods.
+    const map = (raw) => getImporter('cities_without_number').mapFields(raw).mapped;
+    expect(map({ Weapon1Mods: 'Autotargeting, Customized' }).weapon1_mods)
+      .toBe(JSON.stringify(['autotargeting', 'customized_weapon']));
+    expect(map({ 'Armor Mods': 'Absorption Pads; Customized' }).armor_mods)
+      .toBe(JSON.stringify(['absorption_pads', 'customized_armor']));
+  });
+
+  it('round-trips a list it wrote itself', async () => {
+    const map = (raw) => getImporter('cities_without_number').mapFields(raw).mapped;
+    expect(map({ Weapon1Mods: '["heavy_sabot","stun_rounds"]' }).weapon1_mods)
+      .toBe(JSON.stringify(['heavy_sabot', 'stun_rounds']));
+  });
+
+  it('drops a mod name it does not recognise', async () => {
+    // Unlike a skill or an attribute, an unknown mod id is invisible on the sheet, so
+    // keeping it would be a chip that silently does nothing.
+    const map = (raw) => getImporter('cities_without_number').mapFields(raw).mapped;
+    expect(map({ Weapon1Mods: 'Autotargeting, Banana' }).weapon1_mods)
+      .toBe(JSON.stringify(['autotargeting']));
+    expect(map({ Weapon1Mods: '' }).weapon1_mods).toBeUndefined();
+  });
+
+  it('names each mod once even if the form repeats it', async () => {
+    // A mod goes on a given piece of gear once.
+    const map = (raw) => getImporter('cities_without_number').mapFields(raw).mapped;
+    expect(map({ Weapon1Mods: 'Autotargeting, autotargeting' }).weapon1_mods)
+      .toBe(JSON.stringify(['autotargeting']));
   });
 
   it('offers nothing for a system with no importer behind it', async () => {
@@ -445,5 +605,83 @@ describe('the cyberware line from a form or a paste', () => {
 
     const rows = require('../sheets/cyberware.js').fromNotes(mapped.cyberware_notes);
     expect(rows.map((r) => r.name)).toEqual(['Cybereye (Low Light)', 'Neural Link']);
+  });
+});
+
+describe('a weapon says where it is carried', () => {
+  /**
+   * Readied or Stowed (CWN p48), imported from whatever a form calls it.
+   *
+   * Anything unrecognised is dropped rather than guessed at: a weapon nobody has filed is
+   * undecided, which is a real state, and inventing "readied" for it would arm a character
+   * their sheet never claimed to be holding anything.
+   */
+  const map = (raw) => getImporter('cities_without_number').mapFields(raw).mapped;
+
+  it('reads the words a form would print', () => {
+    expect(map({ weapon1carry: 'Readied' }).weapon1_carry).toBe('readied');
+    expect(map({ weapon1carry: 'STOWED' }).weapon1_carry).toBe('stowed');
+  });
+
+  it('reads the single letters the sheet shows', () => {
+    expect(map({ weapon2carry: 'R' }).weapon2_carry).toBe('readied');
+    expect(map({ weapon2carry: 's' }).weapon2_carry).toBe('stowed');
+  });
+
+  it('takes the field under the names a form might give it', () => {
+    expect(map({ weapon3readied: 'R' }).weapon3_carry).toBe('readied');
+    expect(map({ weapon4carried: 'Stowed' }).weapon4_carry).toBe('stowed');
+  });
+
+  it('drops anything it cannot read rather than guessing', () => {
+    for (const v of ['', 'somewhere', '42', 'in hand']) {
+      expect(map({ weapon1carry: v }).weapon1_carry, v).toBeUndefined();
+    }
+  });
+
+  it('leaves a row alone when the form says nothing', () => {
+    expect(map({ weapon1name: 'Heavy Pistol' }).weapon1_carry).toBeUndefined();
+  });
+});
+
+describe('languages arrive from a form as words', () => {
+  /**
+   * The sheet stores a JSON array; a printed form has one line to write on. Nothing is
+   * validated against the list, because the list can never be complete - a campaign's own
+   * city tongue is invented - so dropping an unrecognised one would throw away the
+   * commonest case.
+   */
+  const map = (raw) => getImporter('cities_without_number').mapFields(raw).mapped;
+  const langs = (raw) => JSON.parse(map(raw).languages ?? 'null');
+
+  it('splits a comma-separated line', () => {
+    expect(langs({ languages: 'English (GB), Cantonese, Arabic' }))
+      .toEqual(['English (GB)', 'Cantonese', 'Arabic']);
+  });
+
+  it('accepts semicolons and newlines too', () => {
+    expect(langs({ languages: 'Hindi; Tamil\nSwahili' })).toEqual(['Hindi', 'Tamil', 'Swahili']);
+  });
+
+  it('keeps a language the list has never heard of', () => {
+    // The city's common tongue is invented per campaign, so this is the normal case.
+    expect(langs({ languages: 'Sperantu, Nuyorican' })).toEqual(['Sperantu', 'Nuyorican']);
+  });
+
+  it('round-trips the JSON a sheet exports', () => {
+    expect(langs({ languages: '["Mandarin","Farsi"]' })).toEqual(['Mandarin', 'Farsi']);
+  });
+
+  it('drops empty entries rather than storing blanks', () => {
+    expect(langs({ languages: 'Polish,, ,Zulu' })).toEqual(['Polish', 'Zulu']);
+  });
+
+  it('leaves nothing behind for an empty field', () => {
+    expect(map({ languages: '   ' }).languages).toBeUndefined();
+  });
+
+  it('takes the field under the names a form might give it', () => {
+    expect(langs({ fluentin: 'Korean' })).toEqual(['Korean']);
+    expect(langs({ languagesspoken: 'Yoruba' })).toEqual(['Yoruba']);
   });
 });

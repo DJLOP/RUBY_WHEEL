@@ -15,9 +15,71 @@
 const { PDFDocument } = require('pdf-lib');
 const { CPR_SKILLS, CWN_SKILLS } = require('./rolls');
 const { getLinkedFields } = require('./templates');
+const gearMods = require('./cwnGearMods');
+// One source for how many weapon rows a CWN sheet has, so the aliases and the resolver
+// cannot disagree about which rows exist.
+const { WEAPON_ROWS: CWN_WEAPON_ROWS } = require('./attackCwn');
 
 // 'SP (Head)' / 'sp_head' / 'SP HEAD' all normalize to 'sphead'
 const norm = (key) => String(key).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// ─── The inventory, which every system has ───────────────────────────────────
+//
+// One list of countable things - ammunition, stims, rations, rope - stored as a JSON array
+// under a single field. Shared here rather than written three times because the field is
+// the same on Cyberpunk RED, Cities Without Number and Shadowrun; only Encumbrance, which
+// the importer does not touch, is CWN's.
+
+/** Where a form or a paste can spell the inventory. */
+const aliasInventory = (alias) =>
+  alias(['inventory', 'items', 'itemscarried', 'carried', 'kit'], 'inventory');
+
+/**
+ * One line of a written-out inventory.
+ *
+ * A form prints "3x Stim" or "Stim x3" or just "Rope", so both places a quantity can sit
+ * are read and the rest is the name. A number that is only part of the name - "9mm rounds",
+ * "Type 2 Vacc Suit" - is left alone: it is not at either end with an x beside it.
+ */
+const parseInventoryLine = (line) => {
+  const text = String(line).trim();
+  if (!text) return null;
+  let qty = 1;
+  let name = text;
+  const lead = /^(\d{1,4})\s*[x×]\s*(.+)$/i.exec(text);
+  const trail = /^(.+?)\s*[x×]\s*(\d{1,4})$/i.exec(text);
+  if (lead) { qty = Number(lead[1]); name = lead[2].trim(); }
+  else if (trail) { name = trail[1].trim(); qty = Number(trail[2]); }
+  if (!name) return null;
+  // Stowed rather than unfiled: an imported sheet lists what the character is carrying,
+  // and the stash - which costs nothing and is not on them - is a claim the form did not
+  // make. Same reading the weapon rows take of a row nobody filed.
+  return { name, qty: Math.max(1, qty), enc: '', bundled: false, carry: 'stowed', location: '' };
+};
+
+/**
+ * The inventory as the sheet stores it, from whichever way it arrived.
+ *
+ * JSON from a sheet round-trip, or "2x Stim, Rope; 9mm rounds" from a printed form. Rows
+ * that come in as JSON are passed through as objects rather than rebuilt: the sheet
+ * normalises what it reads (sheets/inventory.ts), so a second copy of that rule here would
+ * only be somewhere for the two to disagree. What is enforced is that it is a list of
+ * objects, which is the part that would throw.
+ */
+const normaliseInventory = (mapped) => {
+  if (typeof mapped.inventory !== 'string') return;
+  const raw = mapped.inventory.trim();
+  let items = null;
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) items = parsed.filter((r) => r && typeof r === 'object');
+    } catch { items = null; }
+  }
+  if (!items) items = raw.split(/[,;\n]/).map(parseInventoryLine).filter(Boolean);
+  if (items.length) mapped.inventory = JSON.stringify(items);
+  else delete mapped.inventory;
+};
 
 // ─── Stage 1: extraction ─────────────────────────────────────────────────────
 
@@ -110,7 +172,10 @@ const buildCprAliases = () => {
   // Notes / gear
   alias(['weapons', 'weaponsnotes'], 'weapons_notes');
   alias(['ammunition', 'ammo'], 'ammunition');
+  // Retired on the sheet in favour of the inventory rows, but still the way in: a form
+  // prints one Gear box, and an older sheet has notes in it worth keeping.
   alias(['gear', 'gearnotes', 'equipment'], 'gear_notes');
+  aliasInventory(alias);
   // Cyberpunk RED keeps chrome as rows rather than a line of text, but a printed form and
   // a pasted stat block still offer one line for it. So this stays as the way in, and the
   // import turns it into rows on the way to the sheet rather than storing the line — see
@@ -261,6 +326,7 @@ const mapCprFields = makeMapFields({
     if (mapped.humanity !== undefined && mapped.humanity_max === undefined) {
       mapped.humanity_max = mapped.humanity;
     }
+    normaliseInventory(mapped);
   },
 });
 
@@ -296,9 +362,35 @@ const buildCwnAliases = () => {
   // Combat
   alias(['ac', 'armorclass', 'defense', 'armour'], 'ac');
   alias(['armor', 'armorname'], 'armor_name');
-  alias(['armorac', 'baseac', 'armorbaseac'], 'armor_ac');
+  // The armor's two ACs. The book's table prints ranged first and that is the column
+  // `armor_ac` has always held, so the melee one is the field that needed adding.
+  alias(['armorac', 'baseac', 'armorbaseac', 'armorrangedac'], 'armor_ac');
+  alias(['armormeleeac', 'armoracmelee'], 'armor_ac_melee');
+  // Linked to the token rather than stored, like `ac` beside it - aliased so a JSON
+  // export of a sheet round-trips into `skipped` instead of looking unrecognised.
+  alias(['acranged', 'rangedarmorclass'], 'ac_ranged');
   alias(['maxdex', 'dexcap', 'armordexcap'], 'armor_dex_cap');
+  alias(['soak', 'damagesoak', 'armorsoak'], 'armor_soak');
+  alias(['soakcurrent', 'currentsoak', 'soakleft'], 'soak_current');
+  alias(['ttmod', 'traumatargetmod', 'armortraumamod'], 'armor_trauma_mod');
+  // Derived, so the save recomputes over it — aliased anyway so the printed form's field
+  // round-trips instead of silently dropping, the same courtesy the attribute mods get.
+  alias(['traumatarget', 'traumatgt'], 'trauma_target');
+  alias(['lifestyle', 'strainmod', 'lifestylemod'], 'strain_mod');
+  alias(['movemod', 'movementmod'], 'move_mod');
+  alias(['xp', 'exp', 'experience', 'experiencepoints'], 'xp');
+  alias(['armorenc', 'armourenc'], 'armor_enc');
+  // The two hand-totalled Enc boxes are gone from the sheet - the inventory rows add
+  // themselves up now - so a form that still prints them has nothing to import them into,
+  // and they belong in `unmapped` where the user is told so rather than in a field the
+  // sheet no longer draws.
+  // Derived like trauma_target above, and aliased for the same reason: a form that prints
+  // MOVE should round-trip rather than land in the unrecognised pile.
+  alias(['move', 'movement', 'moverate'], 'move');
+  alias(['armormods', 'armormodifications'], 'armor_mods');
+  // A Riot Shield is +2 ranged and +4 melee, so the shield bonus splits the same way.
   alias(['shield', 'shieldbonus'], 'shield_bonus');
+  alias(['shieldmelee', 'shieldmeleebonus', 'shieldbonusmelee'], 'shield_bonus_melee');
   alias(['bhb', 'basehitbonus', 'hitbonus', 'attackbonus'], 'base_hit_bonus');
   alias(['systemstrain', 'strain'], 'system_strain');
   alias(['systemstrainmax', 'strainmax'], 'system_strain_max');
@@ -333,16 +425,46 @@ const buildCwnAliases = () => {
   // Notes
   alias(['weaponsnotes', 'weapons', 'weaponnotes'], 'weapons_notes');
   alias(['gear', 'gearnotes', 'equipment'], 'gear_notes');
+  aliasInventory(alias);
+  alias(['weaponsstash', 'stash'], 'weapons_stash');
+  // The free-text box stays a real field here, unlike Cyberpunk's: CWN's sheet still draws
+  // a CYBERWARE NOTES section, so a line about your chrome has somewhere to live that is
+  // not a row.
   alias(['cyberware', 'cyberwarenotes', 'chrome'], 'cyberware_notes');
+  // The printed cyberware table. Transport rather than sheet fields: the socket gathers
+  // them into the rows array and drops them, the same way Cyberpunk's does - and by the
+  // same code, since both systems store chrome as the same kind of row.
+  for (let n = 1; n <= CWN_FORM_CYBER_ROWS; n += 1) {
+    alias([`cyber${n}name`], `cyber${n}_name`);
+    alias([`cyber${n}type`], `cyber${n}_type`);
+    // Strain here, Humanity Loss on the Cyberpunk form. One column, two games.
+    alias([`cyber${n}strain`, `cyber${n}hl`], `cyber${n}_hl`);
+    alias([`cyber${n}cost`, `cyber${n}credits`], `cyber${n}_cost`);
+    alias([`cyber${n}conc`, `cyber${n}concealment`], `cyber${n}_conc`);
+    alias([`cyber${n}effect`], `cyber${n}_data`);
+  }
   alias(['foci', 'focinotes', 'edges', 'abilities'], 'foci_notes');
   alias(['contacts', 'contactsnotes'], 'contacts_notes');
   alias(['injuries', 'injurynotes', 'majorinjuries'], 'injury_notes');
+  // A JSON array on the sheet, but a form prints a line of words. The normaliser below
+  // splits one into the other so a filled-in form does not lose them.
+  alias(['languages', 'languagesspoken', 'fluentin'], 'languages');
 
-  // Weapon rows round-trip (6 fields each)
-  for (let i = 1; i <= 4; i++) {
-    ['name', 'dmg', 'skill', 'trauma', 'shock', 'atk'].forEach((part) =>
+  // The weapon stash's printed boxes. Transport rather than sheet fields: `mapCwnFields`
+  // gathers them into the array and drops them, the same way Cyberpunk's cyberware table
+  // works. A paper form cannot print a list that grows.
+  for (let i = 1; i <= CWN_FORM_STASH_ROWS; i += 1) {
+    ['name', 'dmg', 'skill', 'attr', 'trauma', 'shock', 'enc', 'location'].forEach((part) =>
+      alias([`stash${i}${part}`], `stash${i}_${part}`)
+    );
+  }
+
+  // Weapon rows round-trip
+  for (let i = 1; i <= CWN_WEAPON_ROWS; i++) {
+    ['name', 'dmg', 'skill', 'trauma', 'shock', 'atk', 'attr', 'mods', 'carry', 'enc'].forEach((part) =>
       alias([`weapon${i}${part}`], `weapon${i}_${part}`)
     );
+    alias([`weapon${i}readied`, `weapon${i}stowed`, `weapon${i}carried`], `weapon${i}_carry`);
   }
 
   // Vehicle rows. Less load-bearing than Cyberpunk's, since picking a book type fills the
@@ -382,6 +504,10 @@ const NUMERIC_CWN_FIELDS = new Set([
   'save_physical', 'save_evasion', 'save_mental', 'save_luck',
   'system_strain', 'system_strain_max',
   'armor_ac', 'armor_dex_cap', 'shield_bonus', 'trauma_target',
+  'armor_soak', 'soak_current', 'armor_trauma_mod', 'strain_mod',
+  'move', 'move_mod', 'xp',
+  'armor_enc',
+  'armor_ac_melee', 'shield_bonus_melee',
   'frail', 'auto_initiative',
   'cast_skill', 'mage_effort', 'mage_effort_max', 'spells_prepared_max',
   'summon_skill', 'summoner_effort', 'summoner_effort_max',
@@ -392,6 +518,9 @@ const NUMERIC_CWN_FIELDS = new Set([
 
 // Fields where importing the value also seeds the current (same as CP:R pattern)
 const CWN_MAX_SEEDS = {
+  // A sheet that names its armor's Damage Soak but not what is left of it is a character
+  // arriving between scenes, so the pool comes in full.
+  armor_soak: 'soak_current',
   system_strain_max: 'system_strain',
   mage_effort_max: 'mage_effort',
   summoner_effort_max: 'summoner_effort',
@@ -416,11 +545,150 @@ const parseCwnText = (text) => {
   return out;
 };
 
+/**
+ * Weapon columns whose stored value is a select key, not free text.
+ *
+ * A player filling the printed form copies the book, so the Attr. box arrives as "Str/Dex"
+ * or "Dex" and the Skill box as "Shoot". The sheet stores `str_dex` and `shoot`, and a
+ * value that misses is not a visible error - the weapon just quietly stops rolling that
+ * attribute, or stops resolving at all. So the words are matched here rather than left to
+ * the player to guess our spelling.
+ */
+const CWN_WEAPON_SKILL_WORDS = { shoot: 'shoot', stab: 'stab', punch: 'punch', melee: 'stab', unarmed: 'punch' };
+const CWN_WEAPON_ATTR_WORDS = {
+  str: 'str', strength: 'str',
+  dex: 'dex', dexterity: 'dex',
+  strdex: 'str_dex', dexstr: 'str_dex', strordex: 'str_dex',
+  wis: 'wis', wisdom: 'wis',
+  none: 'none', na: 'none', n: 'none',
+};
+
+/**
+ * A typed list of mod names, turned into the ids the sheet stores.
+ *
+ * The printed form gives one text box per weapon and one for the armor, so what arrives is
+ * "Autotargeting, Customized" rather than a JSON array. Matched by label and by id, and
+ * against the right table of the two - the book prints a Customized in both, and they are
+ * different mods.
+ *
+ * A name that matches nothing is dropped rather than kept: unlike a skill or an attribute,
+ * an unrecognised mod id is invisible on the sheet, so keeping it would be a chip that
+ * silently does nothing.
+ */
+const modIdsFrom = (value, table) => {
+  if (value === undefined || value === null) return undefined;
+  const raw = String(value).trim();
+  if (raw === '') return undefined;
+  // Already a JSON array (a sheet exported from here, round-tripping back in).
+  const asIds = gearMods.parseIds(raw);
+  const known = new Map(table.flatMap((m) => [[norm(m.id), m.id], [norm(m.label), m.id]]));
+  const source = asIds.length ? asIds : raw.split(/[,;]/);
+  const out = [];
+  for (const token of source) {
+    const id = known.get(norm(token));
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return JSON.stringify(out);
+};
+
+const normaliseCwnWeaponRows = (mapped) => {
+  for (let i = 1; i <= CWN_WEAPON_ROWS; i += 1) {
+    const skill = mapped[`weapon${i}_skill`];
+    if (skill !== undefined) {
+      const hit = CWN_WEAPON_SKILL_WORDS[norm(skill)];
+      // Left as typed when it matches nothing, so it shows up on the sheet as something
+      // to fix rather than being silently replaced with a guess.
+      if (hit) mapped[`weapon${i}_skill`] = hit;
+    }
+    const fitted = modIdsFrom(mapped[`weapon${i}_mods`], gearMods.WEAPON_MODS);
+    if (fitted !== undefined) mapped[`weapon${i}_mods`] = fitted;
+    else delete mapped[`weapon${i}_mods`];
+    const attr = mapped[`weapon${i}_attr`];
+    if (attr !== undefined) {
+      const hit = CWN_WEAPON_ATTR_WORDS[norm(attr)];
+      // The book's dash for a weapon with no attribute survives `norm` as an empty
+      // string, which is already how the sheet spells "take it from the skill".
+      if (hit) mapped[`weapon${i}_attr`] = hit;
+      else if (norm(attr) === '') delete mapped[`weapon${i}_attr`];
+    }
+  }
+  // A form says READIED or STOWED, or R / S, or nothing at all. The sheet stores the two
+  // ids and treats anything else as undecided, which is a real state rather than a
+  // failure - a weapon nobody has filed is not being claimed as either.
+  for (let i = 1; i <= CWN_WEAPON_ROWS; i++) {
+    const carry = mapped[`weapon${i}_carry`];
+    if (carry === undefined) continue;
+    const word = norm(carry);
+    if (word === 'readied' || word === 'ready' || word === 'r') mapped[`weapon${i}_carry`] = 'readied';
+    else if (word === 'stowed' || word === 'stow' || word === 's') mapped[`weapon${i}_carry`] = 'stowed';
+    else delete mapped[`weapon${i}_carry`];
+  }
+  // Languages arrive as "English, Cantonese; Sperantu" from a form and as JSON from a
+  // sheet round-trip. Anything typed is kept as typed - the list can never be complete,
+  // since a campaign's own city tongue is invented, so there is nothing to validate it
+  // against and dropping an unrecognised one would throw away the commonest case.
+  if (typeof mapped.languages === 'string') {
+    const raw = mapped.languages.trim();
+    let list = null;
+    if (raw.startsWith('[')) { try { list = JSON.parse(raw); } catch { list = null; } }
+    if (!Array.isArray(list)) list = raw.split(/[,;\n]/);
+    const cleaned = list.map((l) => String(l).trim()).filter(Boolean);
+    if (cleaned.length) mapped.languages = JSON.stringify(cleaned);
+    else delete mapped.languages;
+  }
+  const armor = modIdsFrom(mapped.armor_mods, gearMods.ARMOR_MODS);
+  if (armor !== undefined) mapped.armor_mods = armor;
+  else delete mapped.armor_mods;
+  normaliseInventory(mapped);
+  gatherStash(mapped);
+};
+
+/** How many stash rows the printed form offers. Mirrors CWN_FORM_STASH_ROWS on the PDF. */
+const CWN_FORM_STASH_ROWS = 4;
+
+/** How many cyberware lines the CWN form offers. Mirrors the PDF's own constant. */
+const CWN_FORM_CYBER_ROWS = 12;
+
+/**
+ * The printed stash boxes, gathered into the array the sheet keeps.
+ *
+ * Numbered boxes in, one JSON field out, and the transport fields dropped - exactly what
+ * `cyberware.fromFormFields` does for Cyberpunk's chrome table, and for the same reason: a
+ * form has a fixed number of lines and the sheet does not.
+ *
+ * A row with no name is an empty line on the form rather than a weapon weighing nothing,
+ * so it is skipped. Never written over a stash that already arrived as JSON, which is what
+ * a sheet round-trip carries.
+ */
+const gatherStash = (mapped) => {
+  const rows = [];
+  for (let i = 1; i <= CWN_FORM_STASH_ROWS; i += 1) {
+    const row = {};
+    let named = false;
+    ['name', 'dmg', 'skill', 'attr', 'trauma', 'shock', 'enc', 'location'].forEach((part) => {
+      const key = `stash${i}_${part}`;
+      if (mapped[key] !== undefined) {
+        row[part] = String(mapped[key]);
+        if (part === 'name' && row.name.trim()) named = true;
+        delete mapped[key];
+      }
+    });
+    if (!named) continue;
+    // The two fields the form has no room for. A stashed weapon is not being fired, so an
+    // attack bonus it does not have yet is not worth a box.
+    rows.push({ atk: 0, mods: '', ...row });
+  }
+  if (rows.length && typeof mapped.weapons_stash !== 'string') {
+    mapped.weapons_stash = JSON.stringify(rows);
+  }
+};
+
 const mapCwnFields = makeMapFields({
   system: 'cities_without_number',
   buildAliases: buildCwnAliases,
   numericFields: NUMERIC_CWN_FIELDS,
   maxSeeds: CWN_MAX_SEEDS,
+  post: normaliseCwnWeaponRows,
 });
 
 // ─── Shadowrun 6E ────────────────────────────────────────────────────────────
@@ -469,6 +737,9 @@ const buildSr6Aliases = () => {
       alias([`weapon${i}${part}`], `weapon${i}_${part}`)
     );
   }
+
+  alias(['gear', 'gearnotes', 'equipment'], 'gear_notes');
+  aliasInventory(alias);
   return a;
 };
 
@@ -507,6 +778,7 @@ const mapSr6Fields = makeMapFields({
   buildAliases: buildSr6Aliases,
   numericFields: NUMERIC_SR6_FIELDS,
   maxSeeds: { edge_max: 'edge' },
+  post: normaliseInventory,
 });
 
 // ─── Registry ────────────────────────────────────────────────────────────────

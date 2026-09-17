@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getTemplate, getMaxPairs, hiddenTabsFor, type CharacterSheet, type SheetFieldValue } from '../sheets';
+import { SLOW_ADVANCEMENT_RULE } from '../sheets/cwnAdvancement';
+import { ENCUMBRANCE_RULE } from '../sheets/cwnEncumbrance';
 
 // Shared client logic for the player's own character sheet, used by both
 // surfaces that render it: the in-game floating window
@@ -172,8 +174,19 @@ export function usePlayerSheet(
 
   const template = sheet ? getTemplate(sheet.system) : null;
   const hiddenTabs = hiddenTabsFor(sheet?.system, ruleSettings);
+  // Which XP column the whole table advances on. A house rule rather than a sheet field:
+  // the GM picks it once, not once per character.
+  const xpRate: 'fast' | 'slow' =
+    ruleSettings.find((r) => r.key === SLOW_ADVANCEMENT_RULE)?.value === '1' ? 'slow' : 'fast';
 
-  return { sheet, template, handleFieldChange, handleFieldsChange, allowFumbleShield, hiddenTabs, actions };
+  // Whether what a character carries costs them Move. Off by default, and the book agrees.
+  const encumbranceEnforced =
+    ruleSettings.find((r) => r.key === ENCUMBRANCE_RULE)?.value === '1';
+
+  return {
+    sheet, template, handleFieldChange, handleFieldsChange,
+    allowFumbleShield, xpRate, encumbranceEnforced, hiddenTabs, actions,
+  };
 }
 
 /** Portrait upload shared by both sheet surfaces. The server emits

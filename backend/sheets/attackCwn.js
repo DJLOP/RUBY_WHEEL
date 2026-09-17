@@ -6,8 +6,11 @@ const { cryptoRng } = require('../utils/random');
 // Attack flow (Cities Without Number):
 //   to-hit: 1d20 + base hit bonus + combat skill + attribute mod + weapon atk.
 //   Hit if total >= target AC (app-wide >= convention). Nothing explodes.
-//   Damage: weapon dice (+flat) + attribute mod. No armor soak - AC already
-//   priced the armor into the to-hit.
+//   Damage: weapon dice (+flat) + attribute mod, then the target's armor Damage Soak
+//   takes the first points of it. Soak is a pool of temporary hit points that refills
+//   each scene, not a reduction and not part of AC - this used to say AC had already
+//   priced the armor in, which is a different rule and meant armored characters were
+//   over-damaged on every hit.
 //   Trauma (optional rule, cwn_trauma setting): on a hit, roll the weapon's
 //   trauma die; at or above the trauma rating the total damage is multiplied
 //   by the rating.
@@ -22,8 +25,20 @@ const { cryptoRng } = require('../utils/random');
 
 const rollEngine = require('./rollEngine');
 const vehicleSeats = require('./vehicleSeats');
+const gearMods = require('./cwnGearMods');
+const pharma = require('./cwnPharma');
+const cyberWeapons = require('./cwnCyberWeapons');
 
-const WEAPON_ROWS = 4;
+/**
+ * How many weapons a character can have in hand or on their back at once.
+ *
+ * Not a rule from the book, which limits what you carry by Encumbrance rather than by a
+ * slot count - Readied up to half your Strength, Stowed up to all of it (p48). This is a
+ * sheet constraint, and it was four until Encumbrance existed to do the real limiting.
+ * Six because a Str 12 character can legitimately ready six things; anything past that is
+ * far more likely to be in the stash than in their hands.
+ */
+const WEAPON_ROWS = 6;
 
 /**
  * Vehicles a character sheet can carry, and weapon mounts on each.
@@ -46,8 +61,45 @@ const MORTAL_WOUND_ROUNDS = 6;
 const STABILIZE_BASE_DC = 8;
 const NO_TOOLS_PENALTY = 2;
 
-// Attack skills and the attribute mod each is pinned to.
+// Attack skills and the attribute mod each falls back to.
+//
+// This is a default, not the rule. The book gives every weapon its own Attr. column
+// (p54: "Attr is the attribute that modifies the weapon's hit and damage roll") and it
+// does not always follow from the skill - a Mortar is a Shoot weapon that fires off Wis,
+// and a Knife is a Stab weapon the book lets you swing with Dex. A weapon that names its
+// attribute uses that; one that names none keeps the skill's, which is what every sheet
+// written before the column existed relies on.
 const WEAPON_SKILLS = { shoot: 'dex_mod', stab: 'str_mod', punch: 'str_mod' };
+
+/**
+ * The Attr. column, as the fields it can resolve to.
+ *
+ * A pair means "use whichever one has the better modifier" (p54), which is a choice the
+ * player would make every time and so is not worth asking them for. An empty list is the
+ * book's dash: a demo charge or a land mine has no attribute behind it.
+ */
+const WEAPON_ATTRS = {
+  str: ['str_mod'],
+  dex: ['dex_mod'],
+  str_dex: ['str_mod', 'dex_mod'],
+  wis: ['wis_mod'],
+  none: [],
+};
+
+/**
+ * Which attribute field a weapon actually rolls with, or null for none at all.
+ *
+ * Resolved against the sheet rather than stored, so a character whose Str overtakes their
+ * Dex starts swinging their knife with it without anyone editing the weapon.
+ */
+const weaponAttr = (data, choice, skill) => {
+  const key = String(choice || '').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(WEAPON_ATTRS, key)) return WEAPON_SKILLS[skill] || null;
+  const fields = WEAPON_ATTRS[key];
+  if (fields.length === 0) return null;
+  // Ties keep the first, which is the order the book prints the pair in.
+  return fields.reduce((best, f) => (num(data[f]) > num(data[best]) ? f : best), fields[0]);
+};
 const MELEE_SKILLS = ['stab', 'punch'];
 
 const num = (v) => {
@@ -116,6 +168,27 @@ const vehicleAc = (baseAc, opts = {}) => {
  * Floors at zero — armour can absorb a hit entirely.
  */
 const applyArmorRating = (damage, armorRating) => Math.max(0, num(damage) - num(armorRating));
+
+/**
+ * Damage Soak: the armour spends its own hit points before the wearer does.
+ *
+ * Not armour reduction and not part of AC. AC decides whether a blow lands; soak is a pool
+ * that takes the first points of what lands, and it refills at the start of a scene rather
+ * than per hit. This file used to say the opposite - that AC had already priced the armour
+ * in - which meant an armoured character was over-damaged on every hit, by up to fifteen
+ * points a scene in a heavy suit.
+ *
+ * Vehicle Armour Rating above is the other thing entirely: that subtracts from every hit
+ * and never runs out. A pool that empties and a reduction that does not are easy to confuse
+ * and behave nothing alike, which is why they are separate functions rather than one with
+ * a flag.
+ */
+const applySoak = (damage, soak) => {
+  const dmg = Math.max(0, num(damage));
+  const pool = Math.max(0, num(soak));
+  const absorbed = Math.min(pool, dmg);
+  return { absorbed, through: dmg - absorbed, soakLeft: pool - absorbed };
+};
 
 /** True once a vehicle has taken enough to be destroyed. */
 const vehicleDestroyed = (hpCurrent) => num(hpCurrent) <= 0;
@@ -210,14 +283,36 @@ const getWeapon = (data, index, opts = {}) => {
   // Dice with an optional flat modifier (1d8, 1d8+1, 2d6-1). No @field
   // sneak-ins from the client.
   if (!/^\d+d\d+([+-]\d+)?$/i.test(dmg)) return null;
+  // Installed mods (p59). Folded in here rather than at each roll so every caller gets
+  // the modded weapon - and, because they are overlaid on read rather than written into
+  // the row, stripping one back out actually undoes it.
+  const gear = gearMods.weaponModEffects(data[`${prefix}${i}_mods`]);
+  // Whatever the shooter is on (p60-61). Folded in here for the same reason the mods are:
+  // every caller gets the weapon as it will actually be rolled, and nothing is written
+  // back, so a drug wearing off gives back exactly what it gave.
+  //
+  // Added on TOP of the mods' +3 ceiling rather than under it. That cap is written about
+  // mods - "no combination of mods can improve a weapon's hit or damage bonus by more
+  // than +3" (p59) - and Boneshaker is not a mod; it is a chemical in the person holding
+  // the gun, and it follows them to whatever they pick up next.
+  const drugs = pharma.activeEffects(data);
+  let trauma = parseTrauma(data[`${prefix}${i}_trauma`]);
+  // Stun Rounds trade the trauma die away entirely; Heavy Sabot lets it bite machines.
+  if (trauma && gear.noTrauma) trauma = null;
+  if (trauma && gear.vsVehicles) trauma = { ...trauma, vsVehicles: true };
+  const shock = parseShock(data[`${prefix}${i}_shock`]);
   return {
     name: String(data[`${prefix}${i}_name`] || '').trim() || `WEAPON ${i}`,
     dmg,
     skill,
-    mod: WEAPON_SKILLS[skill],
-    atk: num(data[`${prefix}${i}_atk`]),
-    trauma: parseTrauma(data[`${prefix}${i}_trauma`]),
-    shock: parseShock(data[`${prefix}${i}_shock`]),
+    mod: weaponAttr(data, data[`${prefix}${i}_attr`], skill),
+    atk: num(data[`${prefix}${i}_atk`]) + gear.hit + drugs.hit,
+    trauma,
+    // Damage and Shock floor at nothing: Stun Rounds' -2 must not turn a light hit into
+    // healing.
+    shock: shock ? { ...shock, dmg: Math.max(0, shock.dmg + gear.shock + drugs.shock) } : null,
+    dmgBonus: gear.damage + drugs.damage,
+    mods: gear.installed,
     attackType: MELEE_SKILLS.includes(skill) ? 'melee' : 'ranged',
   };
 };
@@ -248,7 +343,11 @@ const getVehicleWeapon = (data, vehicleIndex, weaponIndex) => {
  * rather than to the gun: the same weapon fired from a parked car takes none of it.
  */
 const rollToHit = (data, weapon, rng = cryptoRng, opts = {}) => {
-  let formula = `1d20 + @base_hit_bonus + @${weapon.skill} + @${weapon.mod}`;
+  // A weapon with no attribute behind it (a land mine, a demo charge) adds no term at
+  // all rather than adding a zero, so the breakdown does not claim a modifier it has not
+  // got.
+  let formula = `1d20 + @base_hit_bonus + @${weapon.skill}`;
+  if (weapon.mod) formula += ` + @${weapon.mod}`;
   if (weapon.atk !== 0) formula += weapon.atk > 0 ? ` + ${weapon.atk}` : ` - ${Math.abs(weapon.atk)}`;
   const penalty = num(opts.penalty);
   if (penalty !== 0) formula += penalty > 0 ? ` + ${penalty}` : ` - ${Math.abs(penalty)}`;
@@ -258,7 +357,10 @@ const rollToHit = (data, weapon, rng = cryptoRng, opts = {}) => {
 
 // Roll weapon damage: dice (+flat from the dmg string) + attribute mod.
 const rollDamage = (data, weapon, rng = cryptoRng) => {
-  const resolved = rollEngine.resolveFormula(`${weapon.dmg} + @${weapon.mod}`, data);
+  let formula = weapon.mod ? `${weapon.dmg} + @${weapon.mod}` : weapon.dmg;
+  const bonus = num(weapon.dmgBonus);
+  if (bonus !== 0) formula += bonus > 0 ? ` + ${bonus}` : ` - ${Math.abs(bonus)}`;
+  const resolved = rollEngine.resolveFormula(formula, data);
   return rollEngine.executeRoll(resolved, 'sum', rng);
 };
 
@@ -274,10 +376,21 @@ const rollTrauma = (weapon, traumaEnabled, targetTT = DEFAULT_TRAUMA_TARGET, rng
   // devastating to a person and does nothing at all to a car.
   if (opts.vsVehicle && !weapon.trauma.vsVehicles) return null;
   const tt = num(targetTT) > 0 ? num(targetTT) : DEFAULT_TRAUMA_TARGET;
-  const roll = Math.floor(rng() * weapon.trauma.die) + 1;
+  // A Monoblade adds to the roll rather than enlarging the die (p71), so the bonus lands
+  // here. Absent on every weapon that has none, which is all of them but cyber blades.
+  //
+  // `defenderBonus` is the other half, and it belongs to the person being shot rather than
+  // to the weapon: Boneshaker's recklessness means "all attacks against them add +2 to any
+  // Trauma Die rolls" (p60). Same roll, opposite side of the table, so it is passed in
+  // rather than read off the weapon.
+  const bonus = num(weapon.trauma.bonus);
+  const defenderBonus = num(opts.defenderBonus);
+  const roll = Math.floor(rng() * weapon.trauma.die) + 1 + bonus + defenderBonus;
   return {
     die: weapon.trauma.die,
     rating: weapon.trauma.rating,
+    bonus,
+    defenderBonus,
     roll,
     tt,
     traumatic: roll >= tt,
@@ -289,7 +402,8 @@ const rollTrauma = (weapon, traumaEnabled, targetTT = DEFAULT_TRAUMA_TARGET, rng
 const shockDamage = (data, weapon, targetAc) => {
   if (!weapon.shock) return 0;
   if (num(targetAc) > weapon.shock.ac) return 0;
-  return Math.max(0, weapon.shock.dmg + num(data[weapon.mod]));
+  // p54: Shock is modified by the weapon's attribute too, not only hit and damage.
+  return Math.max(0, weapon.shock.dmg + (weapon.mod ? num(data[weapon.mod]) : 0));
 };
 
 // Stabilization check: 2d6 + Heal + INT mod vs 8 + rounds down (+2 no tools).
@@ -305,8 +419,22 @@ const rollStabilize = (data, roundsDown, noTools, rng = cryptoRng) => {
   };
 };
 
+/**
+ * A weapon that is part of the character rather than carried by them.
+ *
+ * Its own entry point for the same reason `getVehicleWeapon` has one: the caller should
+ * not have to know that cyber weapons are resolved from the cyberware list while the
+ * others come from numbered fields.
+ */
+const getCyberWeapon = (data, index) => cyberWeapons.getCyberWeapon(data, index, module.exports);
+
+/** Every cyber weapon installed, for offering them alongside the weapon rows. */
+const cyberWeaponList = (data) => cyberWeapons.list(data);
+
 module.exports = {
-  WEAPON_ROWS, WEAPON_SKILLS, MELEE_SKILLS,
+  applySoak,
+  getCyberWeapon, cyberWeaponList,
+  WEAPON_ROWS, WEAPON_SKILLS, MELEE_SKILLS, WEAPON_ATTRS, weaponAttr,
   MORTAL_WOUND_ROUNDS, STABILIZE_BASE_DC, NO_TOOLS_PENALTY, DEFAULT_TRAUMA_TARGET,
   VEHICLE_ROWS, VEHICLE_WEAPON_ROWS, vehicleWeaponPrefix,
   VEHICLE_STATIONARY_AC_PENALTY, MOVING_FIRE_PENALTY,

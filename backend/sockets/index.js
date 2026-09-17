@@ -9,6 +9,9 @@ const rollEngine = require('../sheets/rollEngine');
 const sheetAttack = require('../sheets/attack');
 const cyberEffects = require('../sheets/cyberwareEffects');
 const attackCwn = require('../sheets/attackCwn');
+const cwnPharma = require('../sheets/cwnPharma');
+const skillplugs = require('../sheets/cwnSkillplugs');
+const awardXpModule = require('../sheets/awardXp');
 const tokenControl = require('./tokenControl');
 const attackSr6 = require('../sheets/attackSr6');
 const npcTiers = require('../sheets/npcTiers');
@@ -770,7 +773,22 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
     const overlayLinkedData = (username, system, data, cb) => {
       const linked = sheetTemplates.getLinkedFields(system);
       const out = { ...data };
-      const wantsToken = Object.values(linked).some(s => s === 'token_hp' || s === 'token_hp_max' || s === 'token_ac');
+      /**
+       * Hand back the sheet with its derived fields recomputed.
+       *
+       * They are written on save, so a sheet last saved before a derived field existed
+       * carries nothing for it - and a blank number field reads as 0, which is a wrong
+       * answer rather than an absent one. MOVE showed every existing character as 0
+       * metres until they happened to edit something.
+       *
+       * In memory only, on the way out. Nothing is written here: the next ordinary save
+       * persists it, and until then the sheet at least states the truth.
+       */
+      const done = (result) => {
+        sheetTemplates.applyDerived(system, result);
+        cb(result);
+      };
+      const wantsToken = Object.values(linked).some(s => sheetTemplates.TOKEN_SOURCES.has(s));
       const wantsCash = Object.values(linked).includes('bank_balance');
       const afterToken = (tokenRow) => {
         Object.entries(linked).forEach(([fieldId, source]) => {
@@ -779,18 +797,19 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
           // Unset token AC falls back to 10, matching the attack engine's
           // default - the sheet shows the AC attacks actually resolve against.
           if (source === 'token_ac') out[fieldId] = tokenRow ? (tokenRow.melee_ac ?? 10) : null;
+          if (source === 'token_ac_ranged') out[fieldId] = tokenRow ? sheetTemplates.rangedAcOf(tokenRow) : null;
         });
-        if (!wantsCash) return cb(out);
+        if (!wantsCash) return done(out);
         db.get(`SELECT balance FROM player_banks WHERE username = ?`, [username], (err, bank) => {
           Object.entries(linked).forEach(([fieldId, source]) => {
             if (source === 'bank_balance') out[fieldId] = bank ? bank.balance : 0;
           });
-          cb(out);
+          done(out);
         });
       };
       if (!wantsToken) return afterToken(null);
       db.get(
-        `SELECT hp_current, hp_max, melee_ac FROM locations WHERE shape = 'rhombus' AND owner = ?
+        `SELECT hp_current, hp_max, melee_ac, ranged_ac FROM locations WHERE shape = 'rhombus' AND owner = ?
          ORDER BY (battle_map_id IS NULL) DESC LIMIT 1`,
         [username],
         (err, tokenRow) => afterToken(err ? null : tokenRow)
@@ -1156,16 +1175,17 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
       getGameSystem((err, system) => {
         if (err) return;
         // Linked fields are owned by other systems (token HP, bank) - never
-        // stored in sheet JSON. token_ac is the one WRITABLE link: a sheet
-        // edit routes to the player's token (both melee and ranged - CWN
-        // has a single flat AC), keeping the token the source of truth.
-        const linkSource = sheetTemplates.getLinkedFields(system)[payload.fieldId];
-        if (linkSource === 'token_ac') {
-          const ac = Number(payload.value);
-          if (!Number.isFinite(ac) || ac < 0 || ac > 99) return;
+        // stored in sheet JSON. The AC links are the writable ones: a sheet edit
+        // routes to the player's token, keeping the token the source of truth.
+        // Which columns it touches is the template's call - see acColumns.
+        const linked = sheetTemplates.getLinkedFields(system);
+        const linkSource = linked[payload.fieldId];
+        if (linkSource === 'token_ac' || linkSource === 'token_ac_ranged') {
+          const cols = sheetTemplates.acColumns(linked, { [payload.fieldId]: payload.value });
+          if (!cols) return;
           db.run(
-            `UPDATE locations SET melee_ac = ?, ranged_ac = ? WHERE shape = 'rhombus' AND owner = ?`,
-            [ac, ac, info.userName],
+            `UPDATE locations SET ${cols.sets} WHERE shape = 'rhombus' AND owner = ?`,
+            [...cols.values, info.userName],
             (e2) => {
               if (e2) return;
               emitUpdate({ isRhombusOnly: true });
@@ -1235,7 +1255,7 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
                 if (effAc !== null) {
                   db.run(
                     `UPDATE locations SET melee_ac = ?, ranged_ac = ? WHERE shape = 'rhombus' AND owner = ?`,
-                    [effAc, effAc, info.userName],
+                    [effAc.melee, effAc.ranged, info.userName],
                     () => {
                       emitUpdate({ isRhombusOnly: true });
                       io.emit('sheetUpdated', { username: info.userName, system });
@@ -1291,8 +1311,10 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
             // cannot hold rows. Read it into rows here rather than keeping a field the
             // template no longer has — and never over rows that already arrived, which
             // the Companion path fills in with costs this line cannot carry.
-            if (system === 'cyberpunk_red') {
-              // The printed form's numbered boxes, gathered into rows and then dropped.
+            // The printed form's numbered boxes, gathered into rows and then dropped. Both
+            // systems store chrome as the same kind of row, so one gatherer reads both
+            // forms - only the column labels differ, and those are the PDF's business.
+            if (system === 'cyberpunk_red' || system === 'cities_without_number') {
               const fromForm = cyberware.fromFormFields(data);
               Object.keys(data).filter(cyberware.isFormField).forEach((k) => { delete data[k]; });
               if (fromForm.length && !Array.isArray(data[cyberware.FIELD])) {
@@ -1328,14 +1350,14 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
                     if (effAc === null) return finish();
                     db.run(
                       `UPDATE locations SET melee_ac = ?, ranged_ac = ? WHERE shape = 'rhombus' AND owner = ?`,
-                      [effAc, effAc, info.userName], () => finish()
+                      [effAc.melee, effAc.ranged, info.userName], () => finish()
                     );
                   }, system);
                 }
                 if (effAc !== null) {
                   db.run(
                     `UPDATE locations SET melee_ac = ?, ranged_ac = ? WHERE shape = 'rhombus' AND owner = ?`,
-                    [effAc, effAc, info.userName],
+                    [effAc.melee, effAc.ranged, info.userName],
                     () => { emitUpdate({ isRhombusOnly: true }); finish(); }
                   );
                 } else {
@@ -1387,7 +1409,12 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
             let outcome;
             let statField = null;
             try {
-              const resolved = rollEngine.resolveFormula(rollDef.formula, data, { allowNoDice: rollDef.shape === 'pool' });
+              // Skillplugs grant a skill while they are loaded (p64), overlaid on read the
+              // way the chrome is, so the roll uses the better of the plug and what the
+              // character earned. `withPlugs` hands back the same object when nothing is
+              // running, so every other system and every unplugged character is untouched.
+              const rollData = system === 'cities_without_number' ? skillplugs.withPlugs(data) : data;
+              const resolved = rollEngine.resolveFormula(rollDef.formula, rollData, { allowNoDice: rollDef.shape === 'pool' });
               // First @field in the formula is the governing stat (armor
               // penalty applies to REF/DEX checks)
               const firstField = rollEngine.parseFormula(rollDef.formula).find(t => t.kind === 'field');
@@ -1398,11 +1425,20 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
               // breakdown says where the bonus came from.
               resolved.modifiers.push(...cyberEffects.formulaModifiers(data, rollDef.formula, system));
               outcome = rollEngine.executeRoll(resolved, rollDef.shape, Math.random, { noFumble });
+              // The price of borrowed expertise. A natural 2 on a plug-augmented check is
+              // an automatic failure "that no reroll ability can save", and the jack locks
+              // up for the scene - so this overrides the total rather than modifying it,
+              // and is deliberately checked AFTER the LUCK shield, which cannot save it.
+              if (system === 'cities_without_number'
+                  && skillplugs.crashes(data, 'skill', skillplugs.naturalOf(outcome, 'skill'))) {
+                outcome = { ...outcome, critical: 'failure', plugCrash: true };
+              }
             } catch (e) {
               return;
             }
             const luck = spend.total;
-            const critTag = outcome.critical === 'success' ? ' — CRITICAL!'
+            const critTag = outcome.plugCrash ? ' — PLUG CRASH: AUTOMATIC FAILURE, JACK DOWN FOR THE SCENE'
+              : outcome.critical === 'success' ? ' — CRITICAL!'
               : outcome.critical === 'failure' ? ' — FUMBLE!' : '';
             const luckTag = (spend.bonus > 0 ? ` (LUCK +${spend.bonus})` : '')
               + (spend.negate ? ' (LUCK: FUMBLE SHIELD)' : '');
@@ -1410,6 +1446,14 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
               : hp !== null && Number(data.seriously_wounded) > 0 && hp <= Number(data.seriously_wounded) ? ' (WOUNDED -2)' : '';
             const historyString =
               `${identity.displayName(info.userName)} rolled ${rollDef.label} [${outcome.breakdown} = ${outcome.total}]${luckTag}${woundTag}${critTag}`;
+            // A crashed jack is down for the scene, so it has to outlive this roll.
+            if (outcome.plugCrash) {
+              patchSheet(
+                db, row.id,
+                { [skillplugs.LOCKED_FIELD]: true },
+                () => io.emit('sheetUpdated', { username: info.userName, system })
+              );
+            }
             // Spend the declared LUCK
             if (luck > 0) {
               // A subtraction, so it is computed against what the sheet says now rather
@@ -1746,6 +1790,64 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
       });
     });
 
+    /**
+     * Award or take back experience (CWN p44).
+     *
+     * Deliberately not the shape of adminPayPlayers above. Money is a pot the GM splits
+     * between whoever was on the job; experience is per character, so each name gets the
+     * full amount. Splitting it would mean a full party earned less each than a pair, and
+     * the book says the opposite. The arithmetic and the rules live in sheets/awardXp.js.
+     */
+    socket.on('adminAwardXp', (data) => {
+      if (!data || !data.token || !Array.isArray(data.usernames)) return;
+      jwt.verify(data.token, SECRET, (err, decoded) => {
+        if (err) return;
+        if (decoded.isTemporary || (decoded.role && decoded.role !== 'admin')) return;
+        getGameSystem((sysErr, system) => {
+          if (sysErr) return;
+          // Which column the table advances on, so the award can carry the level with it.
+          db.get(`SELECT value FROM global_settings WHERE key = 'cwn_slow_advancement'`, (rErr, rRow) => {
+          const rate = (!rErr && rRow && rRow.value === '1') ? 'slow' : 'fast';
+          awardXpModule.awardXp(db, { system, usernames: data.usernames, amount: data.amount, rate }, (reason, results) => {
+            if (reason) return socket.emit('xpAwardResult', { ok: false, reason });
+            // Told to the GM who asked, so a name that did nothing is visible rather than
+            // looking like the button missed.
+            socket.emit('xpAwardResult', { ok: true, amount: Number(data.amount), results });
+            // And to each player, whose sheet is showing an EXP bar that just moved.
+            results.filter((r) => r.ok).forEach((r) => {
+              io.emit('sheetUpdated', { username: r.username, system });
+            });
+          });
+          });
+        });
+      });
+    });
+
+    /**
+     * Move a character up or down a level.
+     *
+     * Its own message rather than a flag on the award: XP records what was earned, a
+     * level is a decision made from it, and taking XP back does not un-level anyone -
+     * the skill points and Focus that came with the level do not undo themselves.
+     */
+    socket.on('adminAdjustLevel', (data) => {
+      if (!data || !data.token || !Array.isArray(data.usernames)) return;
+      jwt.verify(data.token, SECRET, (err, decoded) => {
+        if (err) return;
+        if (decoded.isTemporary || (decoded.role && decoded.role !== 'admin')) return;
+        getGameSystem((sysErr, system) => {
+          if (sysErr) return;
+          awardXpModule.adjustLevel(db, { system, usernames: data.usernames, delta: data.delta }, (reason, results) => {
+            if (reason) return socket.emit('xpAwardResult', { ok: false, reason });
+            socket.emit('xpAwardResult', { ok: true, levelChange: Number(data.delta), results });
+            results.filter((r) => r.ok).forEach((r) => {
+              io.emit('sheetUpdated', { username: r.username, system });
+            });
+          });
+        });
+      });
+    });
+
     socket.on('adminUpdateBank', (data) => {
       if (!data || !data.token || !data.username) return;
       jwt.verify(data.token, SECRET, (err, decoded) => {
@@ -2047,6 +2149,10 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
           // there is nothing for the client to name and nothing for it to get wrong.
           const findWeapon = (cb) => {
             if (payload.rideMount) return vehicleState.getRideWeapon(db, attackerData, payload.weaponIndex, cb);
+            // Body weaponry is resolved from the installed chrome rather than a weapon
+            // row, so it is named separately - `cyberIndex` counts the cyber weapons a
+            // character has, not their position in the cyberware list.
+            if (payload.cyberIndex) return cb(attackCwn.getCyberWeapon(attackerData, payload.cyberIndex));
             cb(vehicleIndex
               ? attackCwn.getVehicleWeapon(attackerData, vehicleIndex, payload.weaponIndex)
               : attackCwn.getWeapon(attackerData, payload.weaponIndex));
@@ -2054,9 +2160,11 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
           findWeapon((weapon) => {
           if (!weapon) {
             return socket.emit('sheetAttackError', {
-              message: (vehicleIndex || payload.rideMount)
-                ? 'INVALID_MOUNT // SET NAME, DMG (e.g. 2d8) AND SKILL ON THE VEHICLE MOUNT'
-                : 'INVALID_WEAPON // SET NAME, DMG (e.g. 1d8+1) AND SKILL ON YOUR SHEET',
+              message: payload.cyberIndex
+                ? 'NO_SUCH_CYBER_WEAPON // INSTALL AND PLACE THE IMPLANT FIRST'
+                : (vehicleIndex || payload.rideMount)
+                  ? 'INVALID_MOUNT // SET NAME, DMG (e.g. 2d8) AND SKILL ON THE VEHICLE MOUNT'
+                  : 'INVALID_WEAPON // SET NAME, DMG (e.g. 1d8+1) AND SKILL ON YOUR SHEET',
             });
           }
           getAttackTarget(payload.targetId, (target) => {
@@ -2068,8 +2176,10 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
               try { defenderData = defender ? JSON.parse(defender.data || '{}') : {}; } catch (e) { defenderData = {}; }
 
               resolveOccupiedVehicle(defender, defenderData, (ride) => {
-              // CWN has one flat AC; melee_ac is the canonical token slot and
-              // ranged falls back to it.
+              // Two ACs, and the book is explicit that they are picked by attack type:
+              // "Ranged attacks target ranged AC and melee attacks target melee AC"
+              // (p33). melee_ac is the canonical slot; ranged falls back to it for a
+              // token whose columns have never diverged.
               const meleeAc = target.melee_ac !== null && target.melee_ac !== undefined ? target.melee_ac : 10;
               const tokenAc = weapon.attackType === 'ranged'
                 ? (target.ranged_ac !== null && target.ranged_ac !== undefined ? target.ranged_ac : meleeAc)
@@ -2089,12 +2199,28 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
               db.get(`SELECT value FROM global_settings WHERE key = 'cwn_trauma'`, (tErr, tRow) => {
                 const traumaOn = tErr || !tRow || tRow.value !== '0'; // default ON
                 let toHit;
-                try { toHit = attackCwn.rollToHit(attackerData, weapon, undefined, { penalty: firePenalty }); } catch (e) { return; }
-                const hit = toHit.total >= ac;
+                // A loaded plug grants the weapon's skill for as long as it is in (p64),
+                // overlaid on read like the chrome.
+                const plugged = skillplugs.withPlugs(attackerData);
+                try { toHit = attackCwn.rollToHit(plugged, weapon, undefined, { penalty: firePenalty }); } catch (e) { return; }
+                // "A natural 1 on a skillplug-augmented attack roll is an automatic failure
+                // that no reroll ability can save", and the jack locks for the scene. The
+                // total is left alone in the breakdown so the table can see what it would
+                // have been; what changes is whether it landed.
+                const plugCrash = skillplugs.crashes(attackerData, 'attack', skillplugs.naturalOf(toHit, 'attack'));
+                if (plugCrash) {
+                  patchSheet(
+                    db, sheetRow.id,
+                    { [skillplugs.LOCKED_FIELD]: true },
+                    () => io.emit('sheetUpdated', { username: info.userName, system })
+                  );
+                }
+                const hit = !plugCrash && toHit.total >= ac;
                 const hitHistory =
                   `${identity.displayName(info.userName)} attacks ${target.name} with ${weapon.name} ` +
                   (firePenalty ? 'from a moving vehicle ' : '') +
-                  `[${toHit.breakdown} = ${toHit.total} vs AC ${ac}${acNote}] — ${hit ? 'HIT' : 'MISS'}`;
+                  `[${toHit.breakdown} = ${toHit.total} vs AC ${ac}${acNote}] — ${hit ? 'HIT' : 'MISS'}`
+                  + (plugCrash ? ' — PLUG CRASH: JACK DOWN FOR THE SCENE' : '');
 
                 const emitResult = makeEmitResult(info, target, weapon, {
                   hit, roll: toHit.total, ac,
@@ -2127,14 +2253,31 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
                     });
                   }
                   const frail = Number(defenderData.frail) === 1;
-                  applyTokenDamage(target, amount, (newHp) => {
+                  // Armor spends its own hit points first. A pool rather than a reduction:
+                  // it empties, refills at the start of a scene, and while it lasts the
+                  // wearer takes nothing. Written back before the hit point damage so a
+                  // second shot in the same exchange meets what the first one left.
+                  const soak = attackCwn.applySoak(amount, defenderData.soak_current);
+                  if (soak.absorbed > 0 && defender && defender.id) {
+                    defenderData.soak_current = soak.soakLeft;
+                    patchSheet(db, defender.id, { soak_current: soak.soakLeft });
+                  }
+                  applyTokenDamage(target, soak.through, (newHp) => {
                     const down = newHp <= 0;
                     let history = tagHistory;
+                    if (soak.absorbed > 0) {
+                      history += ` — SOAK ${soak.absorbed} absorbed`
+                        + (soak.through === 0 ? ' — ARMOR HELD' : `, ${soak.through} through`)
+                        + ` (${soak.soakLeft} soak left)`;
+                    }
                     if (down && frail) history += ' — FRAIL: INSTANT DEATH';
                     else if (down && traumatic) history += ' — DOWNED BY A TRAUMATIC HIT · GM: PHYSICAL SAVE OR MAJOR INJURY';
                     else if (down) history += ' — MORTALLY WOUNDED';
                     broadcastRoll(info.userName, outcome ?? { rolls: {}, modTotal: 0, total: amount }, history, color, () => {
-                      emitResult({ ...resultExtras, targetHp: newHp, targetDown: down, frailDeath: down && frail });
+                      emitResult({
+                        ...resultExtras, targetHp: newHp, targetDown: down, frailDeath: down && frail,
+                        soakAbsorbed: soak.absorbed, soakLeft: soak.soakLeft, through: soak.through,
+                      });
                     });
                   });
                 };
@@ -2155,9 +2298,14 @@ module.exports = (io, db, { elevatedUsers, emitUpdate, recordAction }) => {
                   // the damage multiplier.
                   // A vehicle has its own Trauma Target, and only weapons marked ! in the book can
                   // traumatise one at all — the occupant's trauma target is not the car's.
+                  // Boneshaker leaves the defender wide open: every Trauma Die rolled
+                  // against them takes +2 (p60). A car is not on drugs, so the penalty
+                  // rides with the person and not with the vehicle they are sitting in.
                   const trauma = ride
                     ? attackCwn.rollTrauma(weapon, traumaOn, ride.vehicle.traumaTarget, undefined, { vsVehicle: true })
-                    : attackCwn.rollTrauma(weapon, traumaOn, defenderData.trauma_target);
+                    : attackCwn.rollTrauma(weapon, traumaOn, defenderData.trauma_target, undefined, {
+                        defenderBonus: cwnPharma.activeEffects(defenderData).incomingTrauma,
+                      });
                   const traumatic = !!(trauma && trauma.traumatic);
                   const total = Math.max(0, traumatic ? dmg.total * trauma.rating : dmg.total);
                   let dmgHistory = `${weapon.name} damage vs ${target.name} [${dmg.breakdown} = ${dmg.total}]`;

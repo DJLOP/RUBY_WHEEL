@@ -4,6 +4,12 @@ import { VEHICLE_WEAPON_OPTIONS, getVehicleWeapon, weaponMountFields } from '../
 import {
   FITTING_OPTIONS, describeFitting, getFitting, fittingFitsVehicle, budgetFor,
 } from '../vehicleFittings';
+import {
+  ARMOR_MOD_OPTIONS, WEAPON_MOD_OPTIONS, describeArmorMod, describeWeaponMod,
+  summariseArmorMods, summariseWeaponMods, remainingOptions, parseModIds,
+  labelArmorMod, labelWeaponMod,
+} from '../cwnGearMods';
+import { CWN_LANGUAGE_OPTIONS, summariseLanguages } from '../cwnLanguages';
 
 // Cities Without Number template.
 //
@@ -32,11 +38,53 @@ export const CWN_WEAPON_SKILLS: { value: string; label: string }[] = [
   { value: 'punch', label: 'Punch' },
 ];
 
-/** Number of structured weapon rows on the sheet. */
-export const CWN_WEAPON_ROWS = 4;
+/**
+ * Weapons a character can have in hand or on their back at once.
+ *
+ * Not a rule from the book, which limits carrying by Encumbrance rather than a slot count.
+ * Mirrors WEAPON_ROWS in backend/sheets/attackCwn.js, which is what actually resolves an
+ * attack - a row the sheet draws and the resolver will not fire is worse than no row.
+ */
+export const CWN_WEAPON_ROWS = 6;
 
 /** Fields per weapon row (drives the renderer's row chunking). */
-export const CWN_WEAPON_COLUMNS = 6;
+export const CWN_WEAPON_COLUMNS = 7;
+
+/**
+ * Where a weapon is being carried (CWN p48).
+ *
+ * Readied is in your hands or on a quick-draw holster; Stowed is packed away and takes a
+ * Main Action to get out. Both count against Encumbrance, at different limits - Readied up
+ * to half your Strength, Stowed up to all of it.
+ *
+ * Blank is a real state and the default: a weapon nobody has decided about yet is not
+ * being claimed as either, and every sheet written before this column existed reads that
+ * way rather than silently arming its owner.
+ */
+export const CWN_WEAPON_CARRY: { value: string; label: string }[] = [
+  { value: 'readied', label: 'R' },
+  { value: 'stowed', label: 'S' },
+];
+
+/**
+ * The book's Attr. column: which attribute modifies a weapon's hit, damage and shock.
+ *
+ * Blank keeps the attribute the attack skill implies, which is what the app assumed for
+ * every weapon before this existed. It is right for most of the table and wrong where the
+ * book says otherwise - a Mortar is a Shoot weapon that fires off Wis, and the melee
+ * weapons that read Str/Dex can be swung with either.
+ *
+ * STR OR DEX takes whichever is better on the sheet at the time, which is what the book
+ * says to do and what a player would do anyway.
+ */
+export const CWN_WEAPON_ATTRS: { value: string; label: string }[] = [
+  { value: '', label: 'FROM SKILL' },
+  { value: 'str', label: 'STR' },
+  { value: 'dex', label: 'DEX' },
+  { value: 'str_dex', label: 'STR OR DEX' },
+  { value: 'wis', label: 'WIS' },
+  { value: 'none', label: 'NONE' },
+];
 
 /** Vehicles a sheet can carry, and weapon mounts on each. */
 export const CWN_VEHICLE_ROWS = 6;
@@ -124,7 +172,7 @@ const vehicleRow = (i: number): SheetField[] => [
     // A list rather than fields, because a fitting can be stripped out again: a control
     // that wrote "+25% HP" into the stat block would have no way to take it back. The
     // effects are printed on the chips and the numbers stay yours to set.
-    id: `vehicle${i}_fittings`, label: 'FITTINGS', type: 'tag_list', fullWidth: true, addLabel: '+ INSTALL…',
+    id: `vehicle${i}_fittings`, label: 'VEHICLE FITTINGS', type: 'tag_list', fullWidth: true, addLabel: '+ INSTALL…',
     hint: 'Installed fittings. Each spends Power and Mass, as mounted weapons do, and the hull has to be big enough. Effects are printed, not applied — several change the stat block and could not be undone if they were.',
     tagOptions: (data) => {
       const size = String(data[`vehicle${i}_size`] ?? '');
@@ -164,9 +212,63 @@ const weaponRow = (i: number): SheetField[] => [
   { id: `weapon${i}_name`, label: 'NAME', type: 'text', placeholder: 'Heavy Pistol' },
   { id: `weapon${i}_dmg`, label: 'DMG', type: 'text', placeholder: '1d8+1', hint: 'Damage dice, flat bonus allowed: 1d8 or 1d8+1. Rolled by the server on a hit; attribute mod is added automatically.' },
   { id: `weapon${i}_skill`, label: 'SKILL', type: 'select', options: CWN_WEAPON_SKILLS, hint: 'Attack skill used with this weapon.' },
+  {
+    id: `weapon${i}_attr`, label: 'ATTR', type: 'select', options: CWN_WEAPON_ATTRS,
+    hint: `The attribute that modifies this weapon's hit, damage and shock.
+
+  Firearms, grenades      DEX
+  Knife, spear, sword     STR OR DEX
+  Club, big sword         STR
+  Mortar                  WIS
+  Demo charge, mines      NONE
+
+Leave on FROM SKILL to take it from the attack skill, which is right for most weapons.`,
+  },
   { id: `weapon${i}_trauma`, label: 'TRAUMA', type: 'text', placeholder: 'd8/x3', hint: 'Trauma die / rating, e.g. d8/x3: on a hit the trauma die rolls; at or above the target\'s trauma target the damage is multiplied by the rating. Blank = no trauma. Only used when the GRITTY COMBAT house rule is on.' },
   { id: `weapon${i}_shock`, label: 'SHOCK', type: 'text', placeholder: '2/13', hint: 'Shock damage / max AC, e.g. 2/13: on a miss, targets of AC 13 or less still take 2 + attribute mod damage. Blank = no shock.' },
   { id: `weapon${i}_atk`, label: 'ATK', type: 'number', placeholder: '0', hint: 'Flat weapon attack bonus (smartlink, quality), added to the to-hit roll.' },
+  {
+    // Its own line rather than an eighth column. The stat row is already full at a normal
+    // sheet width - an eighth crushed the weapon's NAME to 33px, and letting the row
+    // scroll sideways instead put a third of it behind a scrollbar sitting four rows
+    // below. Vertical space is what this section has; horizontal is what it has not.
+    id: `weapon${i}_carry`, label: 'CARRY', type: 'radio', options: CWN_WEAPON_CARRY,
+    fullWidth: true, inlineField: `weapon${i}_enc`,
+    hint: `Where this weapon is right now.
+
+  R  Readied - in hand or on a quick-draw rig, ready to use
+  S  Stowed  - packed away, a Main Action to get out
+
+Both count against Encumbrance and at different limits: Readied up to half your Strength, Stowed up to all of it. Recorded, not enforced - the app does not stop you drawing a stowed weapon.`,
+  },
+  {
+    // Drawn beside CARRY rather than as a ninth column: the stat row is full, and this is
+    // the line that already answers "how is this weapon being carried".
+    id: `weapon${i}_enc`, label: 'ENC', type: 'number', placeholder: '1',
+    hint: `What this weapon costs against Encumbrance (p48). The book prints one per weapon: a Light Pistol is 1, a Combat Rifle or Shotgun 2, an Automatic Rifle 4.
+
+The sizes below are the guideline for anything the book does not price:
+
+  0   fits a pocket
+  1   carried in one hand
+  2   needs two hands
+  5   a whole-body effort
+  12  a person
+
+Counted at the top of GEAR. Whether it costs you anything is the ENCUMBRANCE house rule.`,
+  },
+  {
+    // Applied, not printed: every one of these lands on something the server works out
+    // fresh on each roll, so taking a mod off actually takes its bonus off.
+    id: `weapon${i}_mods`, label: 'WEAPON MODS', type: 'tag_list', fullWidth: true, addLabel: '+ FIT…',
+    hint: `Mods fitted to this weapon. The ones with numbers are applied to the rolls; the rest are carried for the record.
+
+No combination may improve hit or damage by more than +3.`,
+    tagOptions: (data) => remainingOptions(WEAPON_MOD_OPTIONS, parseModIds(data[`weapon${i}_mods`])),
+    tagLabel: labelWeaponMod,
+    tagHint: describeWeaponMod,
+    tagSummary: (values) => summariseWeaponMods(values),
+  },
 ];
 
 export const citiesWithoutNumber: SheetTemplate = {
@@ -190,10 +292,12 @@ export const citiesWithoutNumber: SheetTemplate = {
     subtitleFields: ['background'],
     hpField: 'hp',
     hpMaxField: 'hp_max',
+    // No LVL chip: the experience bar below states the level, and larger, so a second
+    // copy three millimetres above it was the same number said twice.
     chips: [
-      { field: 'level', label: 'LVL' },
       { field: 'base_hit_bonus', label: 'BHB' },
     ],
+    xpBar: { xpField: 'xp', levelField: 'level' },
   },
   tabs: ['STATS', 'SKILLS', 'GEAR', 'DELUXE', 'NOTES'],
   sections: [
@@ -206,7 +310,8 @@ export const citiesWithoutNumber: SheetTemplate = {
         { id: 'name', label: 'Name', type: 'text', visibility: 'public', placeholder: 'Jade' },
         { id: 'background', label: 'Background', type: 'text', visibility: 'public', placeholder: 'Ganger' },
         { id: 'class', label: 'Class', type: 'text', visibility: 'public', placeholder: 'Operator' },
-        { id: 'level', label: 'Level', type: 'number', placeholder: '1' },
+        { id: 'level', label: 'Level', type: 'number', placeholder: '1', hint: "Your character level, 1 to 10. Set by hand when you advance: levelling grants three skill points and, at 2, 5, 7 and 10, a Focus - all choices the sheet should not make for you. The EXP bar says when you have earned it." },
+        { id: 'xp', label: 'Experience', type: 'number', placeholder: '0', hint: 'Experience points earned so far, cumulative. Usually 1-3 a session for a job done, more for something well beyond your weight.' },
         { id: 'description', label: 'Description', type: 'textarea', visibility: 'public', placeholder: 'Chromed left arm, mirrorshades, never blinks' },
         { id: 'aliases', label: 'Aliases', type: 'text', placeholder: 'The Wraith' },
       ],
@@ -239,12 +344,16 @@ export const citiesWithoutNumber: SheetTemplate = {
       tab: 'STATS',
       columns: 4,
       fields: [
-        { id: 'ac', label: 'AC', type: 'number', sensitivity: 'combat', source: 'token_ac', sourceWritable: true, hint: 'Armor Class - attacks hit at or above this. Linked to your token: editing here updates the token and vice versa.' },
+        { id: 'ac_ranged', label: 'RANGED AC', type: 'number', sensitivity: 'combat', source: 'token_ac_ranged', sourceWritable: true, hint: 'Armor Class against ranged attacks - a shot hits at or above this. Computed from the ARMOR block when you fill one in; otherwise edit it here. Linked to your token, both ways.' },
+        { id: 'ac', label: 'MELEE AC', type: 'number', sensitivity: 'combat', source: 'token_ac', sourceWritable: true, hint: 'Armor Class against melee attacks. Most armor turns a bullet and a blade differently, so this is its own number - a War Harness is 13 ranged and 14 melee. Linked to your token, both ways.' },
         { id: 'base_hit_bonus', label: 'BHB', type: 'number', hint: 'Base hit bonus from class and level; added to every attack roll.' },
+        { id: 'soak_current', label: 'SOAK', type: 'number', maxField: 'armor_soak_total', refillFrom: 'armor_soak_total', hint: "Damage Soak left. Armor absorbs damage before your hit points do, and refills at the start of a new scene. Its maximum is the armor's Damage Soak plus whatever its mods add, from the ARMOR block." },
         { id: 'system_strain', label: 'STRAIN', type: 'number', maxField: 'system_strain_max', hint: 'System Strain from cyberware, drugs and rapid healing. Max is your CON score plus the modifier beside it; recovers 1 per full rest.' },
         { id: 'strain_mod', label: 'LIFESTYLE', type: 'number', placeholder: '0', hint: "Added to your maximum System Strain, normally your CON.\n\n  Squatter  -2\n  Slum      -1\n  Middle     0\n  Fine      +1\n  Luxury    +2\n\nCyberware is counted separately." },
         { id: 'system_strain_max', label: 'STRAIN MAX', type: 'number', derived: true, hint: 'Derived: equals CON score, recomputed on every save.' },
         { id: 'trauma_target', label: 'TRAUMA TGT', type: 'number', derived: true, hint: "Derived: 6 plus the armor's Trauma Target Mod. Enemy trauma dice at or above this multiply their damage. Cyberware raises it further. Only used when the GRITTY COMBAT house rule is on." },
+        { id: 'move_mod', label: 'MOVE MOD', type: 'number', placeholder: '0', unit: 'METERS', hint: "Added to your Move rate. Two real rules the app cannot work out for you:\n\n  Over-encumbered   -30% (p48)\n  Prone             halved (p35)\n\nAlso where a non-human NPC's own rate goes. Cyberware is counted separately." },
+        { id: 'move', label: 'MOVE', type: 'number', derived: true, unit: 'METERS', hint: "Derived: how far you cover with one Move action, in meters.\n\n  Base, any normal human   10m (p34)\n  Coordination Augment II  +10m\n\nRunning is this rate again; charging needs a straight line. Measure it with the ruler - the app does not enforce distance." },
       ],
     },
     {
@@ -288,6 +397,16 @@ export const citiesWithoutNumber: SheetTemplate = {
       ],
     },
     {
+      // First on the tab on purpose: it is a total of everything below it.
+      id: 'encumbrance',
+      label: 'ENCUMBRANCE',
+      layout: 'encumbrance',
+      tab: 'GEAR',
+      // No fields: everything it counts is counted from somewhere else on the sheet. It
+      // took two boxes of hand-totalled "other gear" while gear was a textarea.
+      fields: [],
+    },
+    {
       id: 'armor',
       label: 'ARMOR',
       layout: 'grid',
@@ -295,10 +414,23 @@ export const citiesWithoutNumber: SheetTemplate = {
       columns: 4,
       fields: [
         { id: 'armor_name', label: 'ARMOR', type: 'text', placeholder: 'Armored Vest', hint: 'What you are wearing. Cosmetic - the numbers below do the work.' },
-        { id: 'armor_ac', label: 'BASE AC', type: 'number', placeholder: '14', hint: 'The armor\'s base AC. When set, your token AC is computed automatically: base + DEX mod (capped) + shield. Leave blank to manage AC by hand on the STATS tab or token.' },
+        { id: 'armor_ac', label: 'RANGED AC', type: 'number', placeholder: '13', hint: "The armor's base AC against ranged attacks - the first AC column in the book's armor table. When set, your token AC is computed automatically: base + DEX mod + shield. Leave blank to manage AC by hand on the STATS tab or token." },
+        { id: 'armor_ac_melee', label: 'MELEE AC', type: 'number', placeholder: '14', hint: "The armor's base AC against melee attacks, the second column in the table.\n\n  Reinforced Clothing   13 / 10\n  War Harness           13 / 14\n  Street Leathers       13 / 12\n  Reinforced Longcoat   15 / 13\n  Impact Jacket         12 / 14\n  Light Armored Suit    16 / 13\n  Medium Armored Suit   18 / 14\n  Heavy Armored Suit    20 / 18\n\nLeave blank when the armor defends the same both ways." },
         { id: 'armor_dex_cap', label: 'MAX DEX', type: 'number', hint: 'Heavy armor caps the DEX bonus. Blank = uncapped, 0 = no DEX bonus.' },
         { id: 'armor_trauma_mod', label: 'TT MOD', type: 'number', placeholder: '0', hint: "Your armor's Trauma Target Mod, added to the base 6.\n\n  Clothing, harness, leathers   0\n  Longcoats, impact jacket     +1\n  Light or medium suit         +2\n  Heavy suit                   +3\n\nCyberware is counted separately." },
-        { id: 'shield_bonus', label: 'SHIELD', type: 'number', placeholder: '0', hint: 'Flat AC bonus from a carried shield.' },
+        { id: 'armor_soak', label: 'SOAK', type: 'number', placeholder: '0', hint: "Your armor's Damage Soak: extra hit points it spends before you do, refilling each scene.\n\n  Reinforced clothing      2\n  Street leathers          3\n  War harness, longcoats   5\n  Impact jacket            8\n  Medium armored suit     10\n  Heavy armored suit      15" },
+        { id: 'shield_bonus', label: 'SHIELD', type: 'number', placeholder: '0', hint: "AC bonus from a carried shield or an armor accessory, against ranged attacks.\n\n  Riot Shield           +2 / +4\n  Absorption Plates     +2 / +2\n  Joint Reinforcement   +1 / +1" },
+        { id: 'shield_bonus_melee', label: 'SHIELD (MEL)', type: 'number', placeholder: '0', hint: 'The same bonus against melee attacks. A Riot Shield is much better at fending off a blade than a bullet, at +4 rather than +2. Leave blank when the bonus is the same both ways.' },
+        { id: 'armor_enc', label: 'ENC', type: 'number', placeholder: '1', hint: "What the armor costs against Encumbrance, from the book's armor table (p52). Ordinary clothing 0, a War Harness or Reinforced Longcoat 1, a Plated Longcoat or armored suit 3. Worn armor is always Readied." },
+        { id: 'armor_soak_total', label: 'SOAK TOTAL', type: 'number', derived: true, hint: "Derived: the armor's printed Damage Soak plus whatever its mods add. This is the pool the SOAK field on the STATS tab refills to." },
+        {
+          id: 'armor_mods', label: 'ARMOR MODS', type: 'tag_list', fullWidth: true, addLabel: '+ FIT…',
+          hint: "Mods fitted to this armor (p58). The ones with numbers are applied; the rest are carried for the record. Accessories cannot be modded, only the armor itself.",
+          tagOptions: (data) => remainingOptions(ARMOR_MOD_OPTIONS, parseModIds(data.armor_mods)),
+          tagLabel: labelArmorMod,
+          tagHint: describeArmorMod,
+          tagSummary: (values) => summariseArmorMods(values),
+        },
       ],
     },
     {
@@ -307,15 +439,36 @@ export const citiesWithoutNumber: SheetTemplate = {
       layout: 'weapons',
       tab: 'GEAR',
       columns: CWN_WEAPON_COLUMNS,
+      // Empty rows collapse; + ADD reveals the next. Six blank weapons was most of the
+      // GEAR tab saying nothing, and it got worse when four became six. A row comes back
+      // on its own the moment anything is in it - bought, moved out of the stash, or
+      // typed - so nothing a player wrote can hide.
+      //
+      // Ten fields per weapon: the seven of the stat row, plus CARRY, ENC and MODS.
+      groupSize: CWN_WEAPON_COLUMNS + 3,
       fields: Array.from({ length: CWN_WEAPON_ROWS }, (_, i) => weaponRow(i + 1)).flat(),
+    },
+    {
+      // After the carried rows, because it is what those rows are not.
+      id: 'weapon_stash',
+      // Named for what it holds, because the inventory rows have a stash of their own now
+      // and two headings reading STASH on one tab is a question nobody should have to ask.
+      label: 'WEAPON STASH',
+      layout: 'weapon_stash',
+      tab: 'GEAR',
+      fields: [],
     },
     {
       id: 'weapon_notes',
       label: 'WEAPON NOTES',
       layout: 'notes',
       tab: 'GEAR',
+      // Nothing left for it to hold. Ammunition is inventory rows, mods are fitted to the
+      // weapon that carries them, and where a weapon lives is the stash's Location field.
+      // Retired rather than deleted, and it is the section's only field, so the heading
+      // goes with it - see SheetField.retired.
       fields: [
-        { id: 'weapons_notes', label: 'Ammo, mods, notes', type: 'textarea', placeholder: 'Smartlinked pistol; monoblade never leaves the boot' },
+        { id: 'weapons_notes', label: 'Ammo, mods, notes', type: 'textarea', retired: true, placeholder: 'Smartlinked pistol; monoblade never leaves the boot' },
       ],
     },
     {
@@ -350,13 +503,23 @@ export const citiesWithoutNumber: SheetTemplate = {
       fields: Array.from({ length: CWN_VEHICLE_ROWS }, (_, i) => vehicleRow(i + 1)).flat(),
     },
     {
+      id: 'inventory',
+      label: 'INVENTORY',
+      layout: 'inventory',
+      tab: 'GEAR',
+      inventoryEnc: true,
+      fields: [],
+    },
+    {
       id: 'gear',
       label: 'GEAR & CASH',
       layout: 'list',
       tab: 'GEAR',
       fields: [
         { id: 'cash', label: 'Cash', type: 'number', source: 'bank_balance' },
-        { id: 'gear_notes', label: 'Gear', type: 'textarea', placeholder: 'Medkit, dataslab, grapnel line, 2x stim' },
+        // Replaced by INVENTORY, which can count what this box could only describe.
+        // Retired rather than removed: sheets that predate the rows have real text in here.
+        { id: 'gear_notes', label: 'Gear', type: 'textarea', retired: true, placeholder: 'Medkit, dataslab, grapnel line, 2x stim' },
       ],
     },
     {
@@ -448,6 +611,31 @@ export const citiesWithoutNumber: SheetTemplate = {
       fields: [
         { id: 'foci_notes', label: 'Foci, edges, class abilities', type: 'textarea', placeholder: 'Alert (auto initiative), Killing Blow' },
         { id: 'auto_initiative', label: 'Automatic initiative (from Foci/cyber)', type: 'number', hint: '1 = acts before the normal initiative order. Read by the future initiative tracker.' },
+      ],
+    },
+    {
+      id: 'languages',
+      label: 'LANGUAGES',
+      layout: 'notes',
+      tab: 'NOTES',
+      fields: [
+        {
+          // In NOTES rather than SKILLS: a language is not something you roll, and the
+          // SKILLS tab is a grid of numbers you click to roll one. A list of chips there
+          // would be the only thing on the tab that does nothing when clicked.
+          id: 'languages', label: 'Languages spoken', type: 'tag_list', fullWidth: true,
+          addLabel: '+ SPEAK…',
+          options: CWN_LANGUAGE_OPTIONS,
+          // The list cannot be complete: a character's first two are their city's common
+          // tongue and their enclave's native one, and the city is invented per campaign.
+          allowCustom: 'or type one…',
+          tagSummary: (values, data) => summariseLanguages(values, data),
+          hint: `Languages you are fluent in.
+
+You start with your city's most common language and your own enclave's, then Connect and Know each grant more - one at level-0, two at level-1, and another for every level after.
+
+Counted, not enforced: the book also lets a few months inside a culture earn one, and that is the GM's call.`,
+        },
       ],
     },
     {

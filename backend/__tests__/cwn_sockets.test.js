@@ -11,13 +11,22 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { makeTestDb, get, run } from './helpers/testDb.js';
+import { drain } from './helpers/until.js';
 
 process.env.JWT_SECRET = 'test-secret';
 process.env.DICE_ANIM_MS = '0'; // skip the 5s dice-animation delay on outcome writes
 
 const socketsFactory = (await import('../sockets/index.js')).default;
 
-const flush = (ms = 25) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Wait for what the handler queued, not for a stopwatch.
+ *
+ * This was a fixed sleep, which is a bet that the database finishes within N milliseconds.
+ * On an idle machine it does; under load it does not, and the assertion then ran against
+ * state that had not arrived. `drain` queues its own queries behind the handler's and
+ * waits for those, so it is exact and usually faster.
+ */
+const flush = () => drain(db);
 const waitFor = async (cond, timeout = 2000) => {
   const start = Date.now();
   while (!cond()) {
@@ -345,9 +354,16 @@ describe('CWN token_ac linked field', () => {
     expect(sheet.data.data.ac).toBe(10);
   });
 
-  it('routes a sheet AC edit to the token instead of the sheet JSON', async () => {
+  const seedAcSheet = async () => {
     await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', '{}', 0)`);
     await run(db, `INSERT INTO locations (name, x, y, z, shape, owner, melee_ac, ranged_ac, hp_current, hp_max) VALUES ('GHOST', 0, 0, 0, 'rhombus', 'GHOST', 10, 10, 20, 20)`);
+  };
+
+  it('routes a melee AC edit to that column alone, not to the sheet JSON', async () => {
+    // The two ACs are separate numbers in CWN, so the melee field is not a way to
+    // set both. It used to be, which meant a character could not have the 13/14 the
+    // book gives a War Harness.
+    await seedAcSheet();
     const { handlers, emitted } = boot(db);
     handlers['identify']('GHOST');
     await flush(50);
@@ -357,9 +373,39 @@ describe('CWN token_ac linked field', () => {
 
     const token = await get(db, `SELECT melee_ac, ranged_ac FROM locations WHERE owner = 'GHOST'`);
     expect(token.melee_ac).toBe(16);
-    expect(token.ranged_ac).toBe(16);
+    expect(token.ranged_ac).toBe(10); // untouched
     const sheet = await get(db, `SELECT data FROM character_sheets WHERE username = 'GHOST'`);
     expect(JSON.parse(sheet.data).ac).toBeUndefined(); // never stored on the sheet
+  });
+
+  it('routes a ranged AC edit to the other column alone', async () => {
+    await seedAcSheet();
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['updateSheetField']({ fieldId: 'ac_ranged', value: 13 });
+    await waitFor(() => emitted.some(e => e.event === 'sheetUpdated'));
+
+    const token = await get(db, `SELECT melee_ac, ranged_ac FROM locations WHERE owner = 'GHOST'`);
+    expect(token.ranged_ac).toBe(13);
+    expect(token.melee_ac).toBe(10);
+    const sheet = await get(db, `SELECT data FROM character_sheets WHERE username = 'GHOST'`);
+    expect(JSON.parse(sheet.data).ac_ranged).toBeUndefined();
+  });
+
+  it('reads both ACs back off the token', async () => {
+    await seedAcSheet();
+    await run(db, `UPDATE locations SET melee_ac = 14, ranged_ac = 13 WHERE owner = 'GHOST'`);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['requestMySheet']();
+    await waitFor(() => emitted.some(e => e.event === 'sheetData'));
+    const sheet = emitted.find(e => e.event === 'sheetData');
+    expect(sheet.data.data.ac).toBe(14);
+    expect(sheet.data.data.ac_ranged).toBe(13);
   });
 
   it('armor fields drive the token AC automatically', async () => {
@@ -376,7 +422,54 @@ describe('CWN token_ac linked field', () => {
 
     const token = await get(db, `SELECT melee_ac, ranged_ac FROM locations WHERE owner = 'GHOST'`);
     expect(token.melee_ac).toBe(15); // 14 base + 1 dex mod
-    expect(token.ranged_ac).toBe(15);
+    expect(token.ranged_ac).toBe(15); // no melee AC set, so the two are the same
+  });
+
+  it('drives the two token columns apart when the armor defends differently', async () => {
+    // The point of the split, end to end. A War Harness is 13 ranged and 14 melee; with
+    // a +1 Dex the token must end up 14 and 15, not one number twice. This is the path
+    // that was producing the wrong number - the resolver already picked the right column,
+    // but both columns held the same value so there was nothing to pick between.
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', ?, 0)`,
+      [JSON.stringify({ dex: 14, dex_mod: 1, armor_ac: 13, armor_ac_melee: 14 })]);
+    await run(db, `INSERT INTO locations (name, x, y, z, shape, owner, melee_ac, ranged_ac, hp_current, hp_max) VALUES ('GHOST', 0, 0, 0, 'rhombus', 'GHOST', 10, 10, 20, 20)`);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['updateSheetField']({ fieldId: 'armor_name', value: 'War Harness' });
+    await waitFor(() => emitted.some(e => e.event === 'sheetUpdated'));
+    await flush(50);
+
+    const token = await get(db, `SELECT melee_ac, ranged_ac FROM locations WHERE owner = 'GHOST'`);
+    expect(token.ranged_ac).toBe(14); // 13 + 1
+    expect(token.melee_ac).toBe(15);  // 14 + 1
+  });
+
+  it('sends a ranged attack at the ranged AC and a melee attack at the melee one', async () => {
+    // The two columns only matter because the attack picks between them. Same target,
+    // two weapons, and the AC each one reports is the column its attack type targets.
+    await seedAttacker({
+      ...ATTACKER, stab: 1,
+      weapon2_name: 'Knife', weapon2_dmg: '1d4', weapon2_skill: 'stab',
+      weapon2_trauma: 'd6/x3', weapon2_shock: '1/99', weapon2_atk: 0,
+    });
+    await seedAttackerToken();
+    const target = await run(db,
+      `INSERT INTO locations (name, x, y, z, shape, owner, melee_ac, ranged_ac, hp_current, hp_max)
+       VALUES ('Punk', 0, 0, 0, 'enemy_rhombus', 'SYSTEM', 3, 1, 30, 30)`);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['sheetAttack']({ targetId: target.lastID, weaponIndex: 1 }); // Shoot
+    await waitFor(() => emitted.some(e => e.event === 'attackResult'));
+    expect(emitted.find(e => e.event === 'attackResult').data.ac).toBe(1);
+
+    const melee = emitted.length;
+    handlers['sheetAttack']({ targetId: target.lastID, weaponIndex: 2 }); // Stab
+    await waitFor(() => emitted.slice(melee).some(e => e.event === 'attackResult'));
+    expect(emitted.slice(melee).find(e => e.event === 'attackResult').data.ac).toBe(3);
   });
 
   it('rejects garbage AC writes', async () => {
@@ -522,5 +615,415 @@ describe('system-switch round-trip isolation', () => {
     expect(rolls.some(r => /trauma/i.test(r.data.historyString))).toBe(false);
     const result = emitted.find(e => e.event === 'attackResult');
     expect(result.data.traumatic).toBeUndefined();
+  });
+});
+
+describe('CWN Damage Soak through the socket', () => {
+  // The resolver is tested on its own in cwn_attack.test.js. What matters here is the
+  // wiring: that the pool is read off the defender's sheet, spent before hit points, and
+  // written back so the next shot meets what this one left.
+  const seedSoakTarget = async (soak, ac = 1, hp = 30) => {
+    const target = await run(db,
+      `INSERT INTO locations (name, x, y, z, shape, owner, melee_ac, ranged_ac, hp_current, hp_max)
+       VALUES ('Punk', 0, 0, 0, 'enemy_rhombus', 'SYSTEM', ?, ?, ?, ?)`, [ac, ac, hp, hp]);
+    const sheet = await run(db,
+      `INSERT INTO character_sheets (username, system, is_npc, data) VALUES ('punk', 'cities_without_number', 1, ?)`,
+      [JSON.stringify({ name: 'Punk', soak_current: soak, armor_soak: soak })]);
+    await run(db, `INSERT INTO npc_sheet_links (location_id, sheet_id) VALUES (?, ?)`,
+      [target.lastID, sheet.lastID]);
+    return { targetId: target.lastID, sheetId: sheet.lastID };
+  };
+
+  const attack = async (targetId) => {
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+    handlers['sheetAttack']({ targetId, weaponIndex: 1 });
+    await waitFor(() => emitted.some(e => e.event === 'attackResult'));
+    return emitted.find(e => e.event === 'attackResult').data;
+  };
+
+  const soakOf = async (sheetId) =>
+    JSON.parse((await get(db, `SELECT data FROM character_sheets WHERE id = ?`, [sheetId])).data).soak_current;
+
+  it('spends soak before hit points, and reports both', async () => {
+    await seedAttacker();
+    await seedAttackerToken();
+    // A pool far larger than any one hit, so the armour certainly holds.
+    const { targetId, sheetId } = await seedSoakTarget(50);
+    const res = await attack(targetId);
+
+    expect(res.hit).toBe(true);
+    expect(res.soakAbsorbed).toBe(res.damage);
+    expect(res.through).toBe(0);
+
+    const token = await get(db, `SELECT hp_current FROM locations WHERE id = ?`, [targetId]);
+    expect(token.hp_current).toBe(30);
+    expect(await soakOf(sheetId)).toBe(50 - res.damage);
+  });
+
+  it('lets the overflow through to hit points', async () => {
+    await seedAttacker();
+    await seedAttackerToken();
+    const { targetId, sheetId } = await seedSoakTarget(1);
+    const res = await attack(targetId);
+
+    expect(res.soakAbsorbed).toBe(1);
+    expect(res.through).toBe(res.damage - 1);
+    const token = await get(db, `SELECT hp_current FROM locations WHERE id = ?`, [targetId]);
+    expect(token.hp_current).toBe(30 - (res.damage - 1));
+    expect(await soakOf(sheetId)).toBe(0);
+  });
+
+  it('says so in the roll history', async () => {
+    await seedAttacker();
+    await seedAttackerToken();
+    const { targetId } = await seedSoakTarget(50);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+    handlers['sheetAttack']({ targetId, weaponIndex: 1 });
+    await waitFor(() => emitted.some(e => e.event === 'attackResult'));
+
+    const line = emitted.filter(e => e.event === 'diceRollBroadcast')
+      .map(e => e.data.historyString).find(h => h.includes('SOAK'));
+    expect(line).toMatch(/SOAK \d+ absorbed/);
+    expect(line).toMatch(/ARMOR HELD/);
+  });
+
+  it('takes a second hit out of what the first one left', async () => {
+    // The reason the pool is written back rather than recomputed from the armour.
+    await seedAttacker();
+    await seedAttackerToken();
+    const { targetId, sheetId } = await seedSoakTarget(50);
+    const first = await attack(targetId);
+    const afterFirst = await soakOf(sheetId);
+    const second = await attack(targetId);
+
+    expect(afterFirst).toBe(50 - first.damage);
+    expect(await soakOf(sheetId)).toBe(50 - first.damage - second.soakAbsorbed);
+  });
+
+  it('behaves exactly as before for a target with no soak', async () => {
+    // The regression that matters: every existing CWN character has no soak field yet.
+    await seedAttacker();
+    await seedAttackerToken();
+    const { targetId, sheetId } = await seedSoakTarget(0);
+    const res = await attack(targetId);
+
+    expect(res.soakAbsorbed).toBe(0);
+    expect(res.through).toBe(res.damage);
+    const token = await get(db, `SELECT hp_current FROM locations WHERE id = ?`, [targetId]);
+    expect(token.hp_current).toBe(30 - res.damage);
+    expect(await soakOf(sheetId)).toBe(0);
+  });
+});
+
+describe('CWN weapon attribute through the socket', () => {
+  /**
+   * A Mortar is the case the old code could not express: the book gives it Wis, and the
+   * app derived the attribute from the attack skill, which for a Shoot weapon is Dex.
+   * Resolved end to end here rather than only in the pure function, since the sheet is
+   * where the field actually lives.
+   */
+  // Wis 0 against Dex +5, and a 1d2 so the dice cannot bridge the gap: damage of 1-2 can
+  // only have come from Wis, and 6-7 only from Dex. The attribute is the whole difference.
+  const MORTAR = {
+    base_hit_bonus: 20, shoot: 0, dex_mod: 5, wis_mod: 0, str_mod: 0,
+    weapon1_name: 'Mortar', weapon1_dmg: '1d2', weapon1_skill: 'shoot',
+    weapon1_attr: 'wis', weapon1_trauma: '', weapon1_shock: '', weapon1_atk: 0,
+  };
+
+  const fire = async (sheet, ac) => {
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', ?, 0)`,
+      [JSON.stringify(sheet)]);
+    await seedAttackerToken();
+    const target = await seedTarget(ac);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+    handlers['sheetAttack']({ targetId: target.lastID, weaponIndex: 1 });
+    await waitFor(() => emitted.some(e => e.event === 'attackResult'));
+    return emitted.find(e => e.event === 'attackResult').data;
+  };
+
+  it('rolls the weapon attribute, not the one its skill implies', async () => {
+    const res = await fire(MORTAR, 1);
+    expect(res.hit).toBe(true);
+    expect(res.damage).toBeGreaterThanOrEqual(1);
+    expect(res.damage).toBeLessThanOrEqual(2); // Wis 0. On the skill's Dex it would be 6-7.
+  });
+
+  it('leaves a weapon that names no attribute on the skill default', async () => {
+    // The regression that matters: every weapon on every sheet written before the column.
+    const res = await fire({ ...MORTAR, weapon1_attr: '' }, 1);
+    expect(res.damage).toBeGreaterThanOrEqual(6); // 1d2 + dex 5
+    expect(res.damage).toBeLessThanOrEqual(7);
+  });
+
+  it('rolls no attribute at all for a weapon that has none', async () => {
+    const res = await fire({ ...MORTAR, weapon1_attr: 'none' }, 1);
+    expect(res.damage).toBeGreaterThanOrEqual(1);
+    expect(res.damage).toBeLessThanOrEqual(2);
+  });
+
+  it('takes the better of a pair off the sheet it is read against', async () => {
+    const knife = {
+      ...MORTAR, weapon1_name: 'Knife', weapon1_skill: 'stab', weapon1_attr: 'str_dex',
+      str_mod: 0, dex_mod: 5, stab: 0,
+    };
+    const res = await fire(knife, 1);
+    // Stab alone would mean Str 0. The pair reaches for the Dex instead.
+    expect(res.damage).toBeGreaterThanOrEqual(6);
+    expect(res.damage).toBeLessThanOrEqual(7);
+  });
+});
+
+describe('CWN gear mods through the socket', () => {
+  /**
+   * The mods have to reach a real attack, not just the resolver. Same weapon, same
+   * target, with and without the mod fitted - and stripping it takes the bonus back,
+   * which is the whole reason they are overlaid rather than written into the row.
+   */
+  const GUN = {
+    base_hit_bonus: 20, shoot: 0, dex_mod: 0,
+    // No trauma die: a traumatic hit multiplies the damage by three, which would swamp
+    // the two-point window these tests read the mod out of.
+    weapon1_name: 'Heavy Pistol', weapon1_dmg: '1d2', weapon1_skill: 'shoot',
+    weapon1_trauma: '', weapon1_shock: '', weapon1_atk: 0,
+  };
+
+  const fire = async (sheet) => {
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', ?, 0)`,
+      [JSON.stringify(sheet)]);
+    await seedAttackerToken();
+    const target = await seedTarget(1);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+    handlers['sheetAttack']({ targetId: target.lastID, weaponIndex: 1 });
+    await waitFor(() => emitted.some(e => e.event === 'attackResult'));
+    return emitted.find(e => e.event === 'attackResult').data;
+  };
+
+  it('adds a fitted damage mod to the damage that lands', async () => {
+    // 1d2 is 1-2 bare, and 3-4 with Integral Toxins' +2. The ranges cannot overlap.
+    const res = await fire({ ...GUN, weapon1_mods: JSON.stringify(['integral_toxins']) });
+    expect(res.damage).toBeGreaterThanOrEqual(3);
+    expect(res.damage).toBeLessThanOrEqual(4);
+  });
+
+  it('gives back exactly what it was when the mod comes off', async () => {
+    const res = await fire({ ...GUN, weapon1_mods: JSON.stringify([]) });
+    expect(res.damage).toBeGreaterThanOrEqual(1);
+    expect(res.damage).toBeLessThanOrEqual(2);
+  });
+
+  it('leaves a sheet with no mods field at all alone', async () => {
+    // Every CWN weapon on every sheet written before this existed.
+    const res = await fire(GUN);
+    expect(res.damage).toBeGreaterThanOrEqual(1);
+    expect(res.damage).toBeLessThanOrEqual(2);
+  });
+
+  it('drives the token AC through an armor mod', async () => {
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', ?, 0)`,
+      [JSON.stringify({ dex: 10, armor_ac: 13, armor_ac_melee: 14 })]);
+    await run(db, `INSERT INTO locations (name, x, y, z, shape, owner, melee_ac, ranged_ac, hp_current, hp_max) VALUES ('GHOST', 0, 0, 0, 'rhombus', 'GHOST', 10, 10, 20, 20)`);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['updateSheetField']({ fieldId: 'armor_mods', value: JSON.stringify(['customized_armor']) });
+    await waitFor(() => emitted.some(e => e.event === 'sheetUpdated'));
+    await flush(50);
+
+    const token = await get(db, `SELECT melee_ac, ranged_ac FROM locations WHERE owner = 'GHOST'`);
+    expect(token.ranged_ac).toBe(14); // 13 + 1
+    expect(token.melee_ac).toBe(15);  // 14 + 1
+  });
+
+  it('recomputes the soak pool when a mod is fitted', async () => {
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', ?, 0)`,
+      [JSON.stringify({ con: 10, armor_soak: 8 })]);
+    await run(db, `INSERT INTO locations (name, x, y, z, shape, owner, hp_current, hp_max) VALUES ('GHOST', 0, 0, 0, 'rhombus', 'GHOST', 20, 20)`);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['updateSheetField']({ fieldId: 'armor_mods', value: JSON.stringify(['absorption_pads']) });
+    await waitFor(() => emitted.some(e => e.event === 'sheetUpdated'));
+    await flush(50);
+
+    const sheet = await get(db, `SELECT data FROM character_sheets WHERE username = 'GHOST'`);
+    expect(JSON.parse(sheet.data).armor_soak_total).toBe(13);
+  });
+});
+
+describe('attacking with cyberware', () => {
+  /**
+   * The wiring. Body weaponry is resolved from installed chrome rather than a weapon row,
+   * so sheetAttack names it separately - and the whole point is that the implant's own
+   * dice reach the roll, not the attacker's weapon rows.
+   */
+  const withBlades = (name, over = {}) => ({
+    base_hit_bonus: 30, stab: 0, punch: 0, str_mod: 0, dex_mod: 0,
+    // A weapon row that is obviously not the one we asked for, so a mix-up is visible in
+    // the damage rather than silent.
+    weapon1_name: 'Pistol', weapon1_dmg: '1d2', weapon1_skill: 'shoot', weapon1_trauma: '', weapon1_atk: 0,
+    cyberware: [{ name, type: 'limb', side: null, placed: true, equipped: true, hl: 1, mods: [] }],
+    ...over,
+  });
+
+  const fire = async (sheet, payload) => {
+    // Trauma off. A cyber weapon's trauma die is intrinsic and cannot be blanked on the
+    // sheet the way a weapon row's can, and a traumatic hit multiplies the damage by
+    // three - which would put a 2d6 blade at up to 36 and make any range assertion here
+    // a coin toss rather than a check.
+    await run(db, `INSERT OR REPLACE INTO global_settings (key, value) VALUES ('cwn_trauma', '0')`);
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', ?, 0)`,
+      [JSON.stringify(sheet)]);
+    await seedAttackerToken();
+    const target = await seedTarget(1);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+    handlers['sheetAttack']({ targetId: target.lastID, ...payload });
+    await waitFor(() => emitted.some(e => e.event === 'attackResult' || e.event === 'sheetAttackError'));
+    return emitted;
+  };
+
+  it('rolls the implant dice, not a weapon row', async () => {
+    // Body Blades II is 2d6, so 2-12. The pistol row is 1d2. The ranges cannot overlap.
+    const emitted = await fire(withBlades('Body Blades II'), { cyberIndex: 1 });
+    const res = emitted.find(e => e.event === 'attackResult').data;
+    expect(res.hit).toBe(true);
+    expect(res.damage).toBeGreaterThanOrEqual(2);
+    expect(res.damage).toBeLessThanOrEqual(12);
+  });
+
+  it('names the implant in the result', async () => {
+    const emitted = await fire(withBlades('Body Blades I'), { cyberIndex: 1 });
+    const roll = emitted.filter(e => e.event === 'diceRollBroadcast')
+      .find(r => String(r.data.historyString).includes('Body Blades I'));
+    expect(roll).toBeTruthy();
+  });
+
+  it('still fires an ordinary weapon row when no cyber weapon is named', async () => {
+    // The regression that matters: every attack anyone was already making.
+    const emitted = await fire(withBlades('Body Blades II'), { weaponIndex: 1 });
+    const res = emitted.find(e => e.event === 'attackResult').data;
+    expect(res.damage).toBeGreaterThanOrEqual(1);
+    expect(res.damage).toBeLessThanOrEqual(2); // the 1d2 pistol
+  });
+
+  it('refuses an implant the character has not installed', async () => {
+    const sheet = withBlades('Body Blades I');
+    sheet.cyberware[0].placed = false;
+    const emitted = await fire(sheet, { cyberIndex: 1 });
+    const err = emitted.find(e => e.event === 'sheetAttackError');
+    expect(err.data.message).toMatch(/NO_SUCH_CYBER_WEAPON/);
+  });
+
+  it('refuses an index that names nothing', async () => {
+    const emitted = await fire(withBlades('Body Blades I'), { cyberIndex: 9 });
+    expect(emitted.find(e => e.event === 'sheetAttackError')).toBeTruthy();
+  });
+});
+
+describe('cyberware mods reach a real attack', () => {
+  /**
+   * The gap these close. The mod table was covered by unit tests against the pure
+   * functions, which pass whether or not anything calls them - and two of the five turned
+   * out to be calling nothing at all. These drive the whole path instead.
+   *
+   * Asserted against the TARGET'S HIT POINTS rather than the number in the result, because
+   * the number that matters is the one that actually comes off the target. A mod that
+   * reached the report but not the subtraction would pass a weaker test.
+   */
+  const armed = (mods, over = {}) => ({
+    base_hit_bonus: 30, stab: 0, punch: 0, str_mod: 0, dex_mod: 0,
+    cyberware: [{
+      name: 'Body Blades II', type: 'limb', side: null, placed: true, equipped: true,
+      hl: 2, mods: [], cyberMods: mods,
+    }],
+    ...over,
+  });
+
+  const HP = 40;
+
+  /** One strike, returning what was reported and what the target actually lost. */
+  const strike = async (sheet) => {
+    // Trauma off, so this measures the mod rather than a multiplier. Monoblade makes
+    // traumatic hits MORE likely - it adds to that roll - so leaving the house rule on
+    // would let a modded blade hit harder overall, which is the trade the book describes
+    // and the opposite of what these are checking.
+    await run(db, `INSERT OR REPLACE INTO global_settings (key, value) VALUES ('cwn_trauma', '0')`);
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', ?, 0)`,
+      [JSON.stringify(sheet)]);
+    await seedAttackerToken();
+    const target = await seedTarget(1, HP);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+    handlers['sheetAttack']({ targetId: target.lastID, cyberIndex: 1 });
+    await waitFor(() => emitted.some(e => e.event === 'attackResult'));
+    const res = emitted.find(e => e.event === 'attackResult').data;
+    const token = await get(db, `SELECT hp_current FROM locations WHERE id = ?`, [target.lastID]);
+    return { res, lost: HP - token.hp_current };
+  };
+
+  it('subtracts full Body Blades damage with no mod fitted', async () => {
+    // Body Blades II is 2d6: 2 to 12 off the target, and the report agrees with the loss.
+    const { res, lost } = await strike(armed([]));
+    expect(res.hit).toBe(true);
+    expect(lost).toBeGreaterThanOrEqual(2);
+    expect(lost).toBeLessThanOrEqual(12);
+    expect(lost).toBe(res.damage);
+  });
+
+  it('takes Monoblade off the hit points, not just off the report', async () => {
+    // 2d6 less 2 is 0 to 10. The ranges only separate at the top, which is where this
+    // asserts - and against the target's own hit points.
+    const { res, lost } = await strike(armed(['monoblade']));
+    expect(lost).toBeLessThanOrEqual(10);
+    expect(lost).toBe(res.damage);
+  });
+
+  it('does not apply Monoblade to an implant it does not fit', async () => {
+    // The fits check, driven end to end rather than through the pure function. A
+    // Cyberlimb is not a blade, so the mod is inert and the blade beside it is untouched.
+    const sheet = armed([]);
+    sheet.cyberware.unshift({
+      name: 'Cyberlimb', type: 'limb', side: null, placed: true, equipped: true,
+      hl: 1, mods: [], cyberMods: ['monoblade'],
+    });
+    const { lost } = await strike(sheet);
+    expect(lost).toBeGreaterThanOrEqual(2); // full 2d6, nothing taken off
+  });
+
+  it('reaches the token AC through Hardened Weave', async () => {
+    // Not an attack, but the same question: does the mod reach the number the game uses.
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'cities_without_number', ?, 0)`,
+      [JSON.stringify({
+        dex: 10,
+        cyberware: [{
+          name: 'Dermal Armor I', type: 'skin', side: null, placed: true, equipped: true,
+          hl: 1, conc: 'medical', mods: [{ kind: 'note', target: 'Base AC', value: 16 }],
+          cyberMods: ['hardened_weave'],
+        }],
+      })]);
+    await run(db, `INSERT INTO locations (name, x, y, z, shape, owner, melee_ac, ranged_ac, hp_current, hp_max) VALUES ('GHOST', 0, 0, 0, 'rhombus', 'GHOST', 10, 10, 20, 20)`);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['updateSheetField']({ fieldId: 'armor_name', value: 'nothing' });
+    await waitFor(() => emitted.some(e => e.event === 'sheetUpdated'));
+    await flush(50);
+
+    const token = await get(db, `SELECT melee_ac, ranged_ac FROM locations WHERE owner = 'GHOST'`);
+    expect(token.ranged_ac).toBe(18); // 16 implant + 2 weave
+    expect(token.melee_ac).toBe(18);
   });
 });

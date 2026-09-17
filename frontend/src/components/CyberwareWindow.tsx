@@ -8,12 +8,16 @@ import {
 import {
   CYBERWARE_FIELD, readRows, normaliseRow, totalHumanityLoss, totalCost,
   rowLocation, rowsForPanel, needsPlacing, panelRank, describeMod, isSetKind, isNoteKind,
-  MOD_KINDS, MOD_KIND_LABEL, kindsFor, strainCeiling,
-  type CyberRow, type CyberMod, type ModKind,
+  MOD_KINDS, MOD_KIND_LABEL, kindsFor, strainCeiling, CONC_VALUES, CONC_LABEL,
+  type CyberRow, type CyberMod, type ModKind, type Conc,
 } from '../sheets/cyberwareRows';
 import type { SheetFieldValue, SheetTemplate } from '../sheets/types';
 import { targetOptions } from '../sheets/modTargets';
 import { CWN_CYBERWARE, cyberById } from '../sheets/cwnCyberwarePresets';
+import {
+  CWN_CYBER_MODS, CWN_CYBER_MOD_BY_ID, rowStrain, rowConc, modFits, unfitReason,
+  type CwnCyberMod,
+} from '../sheets/cwnCyberMods';
 
 // The augmentation window: a body with what is installed where, and the table underneath.
 //
@@ -68,7 +72,7 @@ const inputStyle: React.CSSProperties = {
   fontFamily: 'monospace', fontSize: 11, padding: '3px 5px', width: '100%',
 };
 
-type SortKey = 'name' | 'location' | 'hl' | 'cost';
+type SortKey = 'name' | 'location' | 'hl' | 'cost' | 'conc';
 
 /** What the amount column is asking for, which depends on what the modifier does. */
 const amountHeading = (mod: CyberMod): string => {
@@ -250,6 +254,186 @@ function ModEditor({ mods, template, onChange }: {
   );
 }
 
+/**
+ * Which systems have a cyberware mod table at all.
+ *
+ * p71 is a Cities Without Number table, and this window serves Cyberpunk RED too. Offering
+ * a CP:R player a Monoblade would be putting one game's vocabulary in another's sheet — the
+ * same rule the attack picker follows for body weaponry, and that `kindsFor` follows for
+ * the statFloor modifier kind.
+ */
+const MOD_TABLE_SYSTEMS = ['cities_without_number'];
+
+const hasModTable = (system: string): boolean => MOD_TABLE_SYSTEMS.includes(system);
+
+/**
+ * What an implant costs in strain, showing the discount when a mod gives one.
+ *
+ * `2 (3)` rather than a bare 2. The ceiling printed above this counts the discounted
+ * number, so a row showing the raw one disagreed with the total two lines away; but a row
+ * showing only the discounted one looks like the sheet has lost the number the player
+ * typed. Both, and the difference reads as the discount it is.
+ */
+function StrainCost({ row, system }: { row: CyberRow; system: string }) {
+  // Only where the mod table exists. A Cyberpunk RED row that somehow carried a p71 id -
+  // a hand-edited sheet, a converted character - would otherwise show a Cities Without
+  // Number discount against a Humanity cost.
+  if (!hasModTable(system)) return <>{row.hl}</>;
+  const eff = rowStrain(row);
+  if (eff === row.hl) return <>{row.hl}</>;
+  return (
+    <span title={`${row.hl} for the system, less ${row.hl - eff} from its fitted mods`}>
+      {eff} <span style={{ color: 'var(--grid-section)' }}>({row.hl})</span>
+    </span>
+  );
+}
+
+/** A concealment id as the book's word, or a dash where nobody rated it. */
+const concLabel = (c: Conc | string): string =>
+  (c && CONC_LABEL[c as Exclude<Conc, ''>]) || '—';
+
+/**
+ * How hard an implant is to spot, after its mods.
+ *
+ * The rating was stored on every row and shown nowhere, which made two of the ten mods
+ * invisible: Profile Adjustment did nothing anyone could see, and Hardened Weave's price -
+ * the plating makes you Obvious - was charged silently, so a player took the +2 AC and
+ * never learned what it cost them.
+ *
+ * `Obvious (Medical)` when a mod moved it, matching how StrainCost shows a discount: the
+ * effective value first, what the piece is rated on its own in brackets.
+ */
+function Concealment({ row, system }: { row: CyberRow; system: string }) {
+  // Cyberpunk RED does not rate concealment at all, so its rows are blank by design.
+  if (!hasModTable(system)) return <>{concLabel(row.conc)}</>;
+  const after = rowConc(row) as Conc;
+  if (after === row.conc) return <>{concLabel(row.conc)}</>;
+  return (
+    <span title={`${concLabel(row.conc)} on its own, ${concLabel(after)} with its mods fitted`}>
+      {concLabel(after)} <span style={{ color: 'var(--grid-section)' }}>({concLabel(row.conc)})</span>
+    </span>
+  );
+}
+
+/**
+ * The p71 mods fitted to one implant, as chips.
+ *
+ * Deliberately unlike the modifier chips beside them: those are arbitrary stat changes
+ * somebody typed, these are a fixed table from the book, and two chip families that looked
+ * alike in the same cell would be one confusion away from a player fitting a Monoblade
+ * expecting +6 Business.
+ *
+ * A chip whose mod no longer fits is struck through rather than dropped. Fitting is checked
+ * against the row as it is NOW, so renaming a Body Blades II to something else leaves a mod
+ * that has quietly stopped working — and silently hiding it would hide the reason too.
+ */
+/**
+ * As much of a row as fitting needs: a stored one, or a draft whose strain box is empty.
+ *
+ * An empty box counts as 0, so Tailored Interface reads as not fitting until a strain cost
+ * is typed — which is the truth, and better than offering it and taking it away.
+ */
+type FitTarget = { name: string; hl: number | ''; mods: CyberMod[] };
+
+function FittedModChips({ ids, row }: { ids: string[]; row: FitTarget }) {
+  const mods = ids.map((id) => CWN_CYBER_MOD_BY_ID[id]).filter(Boolean);
+  if (!mods.length) return null;
+  return (
+    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, verticalAlign: 'middle' }}>
+      {mods.map((m) => {
+        const why = unfitReason(m, row);
+        return (
+          <span
+            key={m.id}
+            title={why ? `${m.effect} — inert here: ${why}` : m.effect}
+            style={{
+              ...mono(10), letterSpacing: 0, padding: '0 4px', whiteSpace: 'nowrap',
+              border: `1px solid ${why ? 'var(--danger)' : 'var(--cyan)'}`,
+              color: why ? 'var(--danger)' : 'var(--cyan)',
+              textDecoration: why ? 'line-through' : 'none',
+            }}
+          >{m.label}</span>
+        );
+      })}
+    </span>
+  );
+}
+
+/**
+ * The fitted-mod picker on the add/edit form.
+ *
+ * Every mod is listed, with the ones that will not take disabled and carrying the reason,
+ * rather than filtered out: a Monoblade missing from a Cyberlimb's list reads as the app
+ * not having Monoblade, where a greyed one saying "needs a bladed cyber system" teaches the
+ * rule the book is actually applying.
+ *
+ * The list is of what is NOT yet fitted — a mod already on shows as a chip, and offering it
+ * twice would suggest two of them stack, which p71 explicitly denies for the one mod where
+ * it would matter.
+ */
+function FittedModEditor({ row, ids, onChange }: {
+  row: FitTarget;
+  ids: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const available = CWN_CYBER_MODS.filter((m) => !ids.includes(m.id));
+  const chosen = ids.map((id) => CWN_CYBER_MOD_BY_ID[id]).filter(Boolean) as CwnCyberMod[];
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      <span style={{ ...mono(9), color: 'var(--grid-section)', display: 'block', marginBottom: 2 }}>
+        CYBERWARE MODS
+      </span>
+      {chosen.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+          {chosen.map((m) => {
+            const why = unfitReason(m, row);
+            return (
+              <span
+                key={m.id}
+                title={why ? `${m.effect} — inert here: ${why}` : m.effect}
+                style={{
+                  ...mono(10), letterSpacing: 0, display: 'inline-flex', alignItems: 'center',
+                  gap: 5, padding: '1px 4px',
+                  border: `1px solid ${why ? 'var(--danger)' : 'var(--cyan)'}`,
+                  color: why ? 'var(--danger)' : 'var(--cyan)',
+                }}
+              >
+                <span style={{ textDecoration: why ? 'line-through' : 'none' }}>{m.label}</span>
+                {/* The reason travels with the chip, not only in a tooltip: a mod that has
+                    stopped working is worth reading without hunting for it. */}
+                {why && <em style={{ fontStyle: 'normal', opacity: 0.75 }}>{why}</em>}
+                <button
+                  type="button" aria-label={`Remove ${m.label}`}
+                  onClick={() => onChange(ids.filter((id) => id !== m.id))}
+                  style={{
+                    ...mono(11), background: 'none', border: 'none', color: 'var(--danger)',
+                    cursor: 'pointer', padding: 0, lineHeight: 1,
+                  }}
+                >×</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <select
+        style={inputStyle} aria-label="Fit a cyberware mod" value=""
+        onChange={(e) => { if (e.target.value) onChange([...ids, e.target.value]); }}
+      >
+        <option value="">— fit a mod —</option>
+        {available.map((m) => {
+          const why = unfitReason(m, row);
+          return (
+            <option key={m.id} value={m.id} disabled={Boolean(why)}>
+              {m.label} · {m.effect}{why ? ` (${why})` : ''}
+            </option>
+          );
+        })}
+      </select>
+    </div>
+  );
+}
+
 export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClose, who }: Props) {
   const [pos, setPos] = useState({ x: 90, y: 60 });
   const rows = useMemo(() => readRows(data), [data]);
@@ -267,11 +451,15 @@ export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClo
   /** What the body can take, on the systems that limit it. Null where none applies. */
   const ceiling = system === 'cities_without_number' ? strainCeiling(data, rows) : null;
 
-  const admits = (piece: { hl: number; name: string }, without?: CyberRow): string | null => {
+  const admits = (piece: CyberRow, without?: CyberRow): string | null => {
     if (system !== 'cities_without_number') return null;
     const others = without ? rows.filter((r) => r !== without) : rows;
     const { max, load } = strainCeiling(data, others);
-    const need = Number(piece.hl) || 0;
+    // What it will actually cost, not what is printed on it: a Tailored Interface lowers
+    // the bill by a point (p71), and `load` on the other side of this comparison already
+    // counts every installed piece that way. Charging the raw figure here would refuse a
+    // piece the sheet had just finished saying there was room for.
+    const need = rowStrain(piece);
     if (max <= 0) return 'NO SYSTEM STRAIN MAXIMUM: SET CON FIRST';
     if (load + need > max) {
       return `NOT ENOUGH SYSTEM STRAIN — ${piece.name.toUpperCase()} NEEDS ${need}, `
@@ -368,6 +556,16 @@ export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClo
         if (a.cost === null) return 1;
         if (b.cost === null) return -1;
         return (a.cost - b.cost) * dir;
+      }
+      if (sortKey === 'conc') {
+        // By how visible it is, in the book's order - alphabetical would put Medical
+        // between Obvious and Sight and mean nothing. Unrated sorts last, as unpriced does.
+        const at = CONC_VALUES.indexOf(rowConc(a) as Exclude<Conc, ''>);
+        const bt = CONC_VALUES.indexOf(rowConc(b) as Exclude<Conc, ''>);
+        if (at < 0 && bt < 0) return 0;
+        if (at < 0) return 1;
+        if (bt < 0) return -1;
+        return (at - bt) * dir;
       }
       const x = sortKey === 'location' ? rowLocation(a) : a.name;
       const y = sortKey === 'location' ? rowLocation(b) : b.name;
@@ -553,7 +751,7 @@ export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClo
               display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6,
             }}
           >
-            <span>{r.name} <span style={{ color: 'var(--grid-section)' }}>{words.costShort} {r.hl}</span></span>
+            <span>{r.name} <span style={{ color: 'var(--grid-section)' }}>{words.costShort} <StrainCost row={r} system={system} /></span></span>
             {!readOnly && (
               <button
                 type="button"
@@ -640,7 +838,7 @@ export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClo
                   }}
                 >
                   {r.name}
-                  <span style={{ color: 'var(--grid-section)' }}> {words.costShort} {r.hl}</span>
+                  <span style={{ color: 'var(--grid-section)' }}> {words.costShort} <StrainCost row={r} system={system} /></span>
                   {fits && <span style={{ color: 'var(--cyan)' }}> · fits</span>}
                 </button>
               );
@@ -734,7 +932,11 @@ export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClo
                       ...mono(10), color: 'var(--dark-green)',
                     }}
                   >◌</th>
-                  {([['name', 'NAME'], ['location', 'TYPE'], ['hl', words.costShort], ['cost', words.money.toUpperCase()]] as [SortKey, string][])
+                  {([['name', 'NAME'], ['location', 'TYPE'], ['hl', words.costShort], ['cost', words.money.toUpperCase()],
+                    // Only where the system rates it. Cyberpunk RED does not, so the column
+                    // would be a row of dashes claiming a stat that game has no rule for.
+                    ...(hasModTable(system) ? [['conc', 'CONC'] as [SortKey, string]] : []),
+                  ] as [SortKey, string][])
                     .map(([k, lbl]) => (
                       <th
                         key={k}
@@ -753,7 +955,7 @@ export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClo
               </thead>
               <tbody>
                 {sorted.length === 0 && (
-                  <tr><td colSpan={readOnly ? 6 : 7} style={{ ...mono(11), color: 'var(--grid-section)', padding: '4px 6px', letterSpacing: 0 }}>
+                  <tr><td colSpan={(readOnly ? 6 : 7) + (hasModTable(system) ? 1 : 0)} style={{ ...mono(11), color: 'var(--grid-section)', padding: '4px 6px', letterSpacing: 0 }}>
                     Nothing installed. Add a piece, or import a character.
                   </td></tr>
                 )}
@@ -804,13 +1006,26 @@ export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClo
                         </select>
                       )}
                     </td>
-                    <td style={{ ...mono(11), color: 'var(--cyan)', padding: '3px 6px', textAlign: 'right' }}>{r.hl}</td>
+                    <td style={{ ...mono(11), color: 'var(--cyan)', padding: '3px 6px', textAlign: 'right' }}><StrainCost row={r} system={system} /></td>
                     <td style={{ ...mono(11), color: r.cost === null ? 'var(--dark-green)' : 'var(--cyan)', padding: '3px 6px', textAlign: 'right' }}>
                       {r.cost === null ? '—' : r.cost.toLocaleString()}
                     </td>
+                    {hasModTable(system) && (
+                      <td style={{ ...mono(11), color: 'var(--cyan)', padding: '3px 6px', letterSpacing: 0, whiteSpace: 'nowrap' }}>
+                        <Concealment row={r} system={system} />
+                      </td>
+                    )}
                     <td style={{ ...mono(11), color: 'var(--grid-section)', padding: '3px 6px', letterSpacing: 0 }}>
                       {r.data && <span style={{ marginRight: r.mods.length ? 6 : 0 }}>{r.data}</span>}
                       <ModChips mods={r.mods} />
+                      {/* Beside the modifiers rather than in a column of their own: most
+                          implants have none, and a mostly-empty column costs every row
+                          width the names and effects were already short of. */}
+                      {hasModTable(system) && r.cyberMods.length > 0 && (
+                        <span style={{ marginLeft: r.mods.length || r.data ? 6 : 0 }}>
+                          <FittedModChips ids={r.cyberMods} row={r} />
+                        </span>
+                      )}
                     </td>
                     {!readOnly && (
                       <td style={{ padding: '3px 6px', textAlign: 'center', whiteSpace: 'nowrap' }}>
@@ -915,15 +1130,35 @@ export function CyberwareWindow({ data, template, readOnly, onFieldChange, onClo
               />
             </Field>
           </div>
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: hasModTable(system) ? '1fr 130px' : '1fr', gap: 6 }}>
             <Field label="EFFECT">
               <input
                 style={inputStyle} aria-label="Effect"
                 value={draft.data} onChange={(e) => setDraft({ ...draft, data: e.target.value })}
               />
             </Field>
+            {/* Only the catalogue used to set this, so a piece added by hand had no rating
+                and never could. The book gives every implant one, and Profile Adjustment
+                has nothing to step without it. */}
+            {hasModTable(system) && (
+              <Field label="CONC">
+                <select
+                  style={inputStyle} aria-label="Concealment" value={draft.conc}
+                  onChange={(e) => setDraft({ ...draft, conc: e.target.value as Conc })}
+                >
+                  <option value="">Unrated</option>
+                  {CONC_VALUES.map((c) => <option key={c} value={c}>{CONC_LABEL[c]}</option>)}
+                </select>
+              </Field>
+            )}
           </div>
           <ModEditor mods={draft.mods} template={template} onChange={(mods) => setDraft({ ...draft, mods })} />
+          {hasModTable(system) && (
+            <FittedModEditor
+              row={draft} ids={draft.cyberMods}
+              onChange={(cyberMods) => setDraft({ ...draft, cyberMods })}
+            />
+          )}
           <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'flex-end' }}>
             <button type="button" className="utility-btn" onClick={closeForm}>CANCEL</button>
             <button type="button" className="upload-btn" onClick={commitDraft} disabled={!draft.name.trim()}>

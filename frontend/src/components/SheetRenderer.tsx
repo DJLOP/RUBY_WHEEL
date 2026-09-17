@@ -1,4 +1,12 @@
 import { CyberwareSection } from './CyberwareSection';
+import { InventorySection, type RowAction } from './InventorySection';
+import { PharmaSection } from './PharmaSection';
+import { consumable, takeDoseFromRow, hasPharma, activeDrugs } from '../sheets/cwnPharma';
+import { readInventory } from '../sheets/inventory';
+import {
+  hasSkillplugs, plugLevel as plugFor, loadable, loadFromRow,
+  isLocked as plugsLocked, clearCrash, running as plugsRunning, unload as unloadPlug,
+} from '../sheets/cwnSkillplugs';
 import {
   sheetEffects, effectiveValue, describeSources,
   type SheetEffects, type FieldEffect,
@@ -6,6 +14,12 @@ import {
 import React, { useState, useEffect, useMemo } from 'react';
 import type { SheetTemplate, SheetSection, SheetField, SheetData, SheetFieldValue } from '../sheets';
 import { TvPortrait } from './TvPortrait';
+import { xpProgress, describeXp } from '../sheets/cwnAdvancement';
+import { carriedEnc, encState, describeEnc, encumberedMove } from '../sheets/cwnEncumbrance';
+import {
+  STASH_FIELD, readStash, writeStash, firstFreeRow, stashedToCarried,
+  carriedToStashed, compactCarried, type StashedWeapon,
+} from '../sheets/cwnWeaponStash';
 
 function DiceIcon({ size = 14 }: { size?: number }) {
   return (
@@ -52,6 +66,12 @@ interface SheetRendererProps {
   /** House-rule gate: show the 1-LUCK fumble shield control. Off = a natural
    *  1 always fumbles and the button is hidden. */
   allowFumbleShield?: boolean;
+  /** Which XP column the table advances on - the cwn_slow_advancement house rule. The
+   *  whole table uses one, so it arrives as a setting rather than off the sheet. */
+  xpRate?: 'fast' | 'slow';
+  /** Whether the cwn_encumbrance house rule is on. Off, what you carry is counted and
+   *  shown but costs you nothing; on, it comes off your Move. */
+  encumbranceEnforced?: boolean;
   /** A section's header button was pressed. Sections declare the label; what it does is
    *  the surface's business — the renderer has no idea what a window is. */
   onSectionAction?: (sectionId: string) => void;
@@ -91,6 +111,29 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * The HP and EXP bars are two of the same thing, so they are measured the same.
+ *
+ * Fixed widths either side, and the SAME width: without them the labels ("HP" against
+ * "EXP") started the two bars at different x and the values ("35/35" against "0/3") ended
+ * them at different x. Equal widths do a second job - they put the same gutter either side
+ * of the track, so the bar is centred in the header column. It was not: a 30px gutter left
+ * and 52px right sat the bar 11px off centre, and the name and level line centred above
+ * and below it then looked crooked against it.
+ *
+ * The value is left-aligned so it sits against the bar it belongs to, rather than drifting
+ * out to the far edge of its box.
+ */
+const BAR_GUTTER = '32px';
+
+const barLabel: React.CSSProperties = {
+  fontSize: '0.6rem', opacity: 0.65, width: BAR_GUTTER, flexShrink: 0,
+};
+
+const barValue: React.CSSProperties = {
+  fontSize: '0.65rem', width: BAR_GUTTER, flexShrink: 0, textAlign: 'left', whiteSpace: 'nowrap',
+};
+
 const inputStyle: React.CSSProperties = {
   background: 'color-mix(in srgb, var(--black) 50%, transparent)',
   border: '1px solid var(--green)',
@@ -110,6 +153,52 @@ const parseTagList = (raw: unknown): string[] => {
     return Array.isArray(parsed) ? parsed.filter(v => typeof v === 'string') : [];
   } catch { return []; }
 };
+
+/**
+ * Typing an entry a fixed list could not contain.
+ *
+ * Its own component so it can hold the half-typed text: the tag list stores a committed
+ * array, and keeping a draft in there would write a language into the sheet on every
+ * keystroke.
+ *
+ * Enter commits, because a text box beside a list is a thing people press Enter in.
+ */
+function CustomTagEntry({ placeholder, label, onAdd }: {
+  placeholder: string;
+  label: string;
+  onAdd: (entry: string) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const commit = () => {
+    const entry = draft.trim();
+    if (!entry) return;
+    onAdd(entry);
+    setDraft('');
+  };
+  return (
+    <div style={{ display: 'flex', gap: '4px', maxWidth: '260px' }}>
+      <input
+        aria-label={`Add a custom ${label}`}
+        className="sheet-input"
+        style={{ ...inputStyle, fontSize: '0.7rem' }}
+        placeholder={placeholder}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
+      />
+      <button
+        type="button"
+        aria-label={`Add typed ${label}`}
+        onClick={commit}
+        disabled={!draft.trim()}
+        style={{
+          ...inputStyle, width: 'auto', padding: '3px 8px', fontSize: '0.7rem',
+          cursor: draft.trim() ? 'pointer' : 'default', opacity: draft.trim() ? 1 : 0.4,
+        }}
+      >+</button>
+    </div>
+  );
+}
 
 function FieldInput({ field, data, readOnly, onFieldChange, onFieldsChange, style, onOpenLink }: {
   field: SheetField; data: SheetData; readOnly: boolean;
@@ -173,7 +262,7 @@ function FieldInput({ field, data, readOnly, onFieldChange, onFieldsChange, styl
                 border: '1px solid var(--green)', padding: '1px 4px', fontSize: '0.6rem',
               }}
             >
-              {options.find(o => o.value === id)?.label ?? id}
+              {field.tagLabel?.(id) ?? options.find(o => o.value === id)?.label ?? id}
               {field.tagHint?.(id) ? <em style={{ opacity: 0.6, fontStyle: 'normal' }}>{field.tagHint(id)}</em> : null}
               {!readOnly && (
                 <button
@@ -198,11 +287,53 @@ function FieldInput({ field, data, readOnly, onFieldChange, onFieldsChange, styl
             {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         )}
+        {!readOnly && field.allowCustom && (
+          <CustomTagEntry
+            placeholder={field.allowCustom}
+            label={field.label}
+            onAdd={(entry) => { if (!chosen.includes(entry)) write([...chosen, entry]); }}
+          />
+        )}
         {summary && (
-          <div style={{ fontSize: '0.6rem', opacity: summary.warn ? 1 : 0.65, color: summary.warn ? '#ff4444' : undefined }}>
+          <div style={{ fontSize: '0.6rem', opacity: summary.warn ? 1 : 0.65, color: summary.warn ? 'var(--danger)' : undefined }}>
             {summary.text}
           </div>
         )}
+      </div>
+    );
+  }
+  if (field.type === 'radio') {
+    /**
+     * A small set of mutually exclusive choices, shown all at once.
+     *
+     * A select hides the alternatives behind a click, which is the wrong trade when there
+     * are two of them and the answer is glanced at rather than edited - whether a weapon
+     * is in your hands or in your pack is read every round and changed rarely.
+     *
+     * `name` is scoped to the field id so two weapons' pairs do not become one group and
+     * start deselecting each other.
+     */
+    const options = field.options ?? [];
+    return (
+      <div role="radiogroup" aria-label={field.label} style={{ display: 'flex', gap: 6, ...style }}>
+        {options.map((o) => (
+          <label
+            key={o.value}
+            title={o.label}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 2, cursor: readOnly ? 'default' : 'pointer', fontSize: '0.6rem' }}
+          >
+            <input
+              type="radio"
+              name={`${field.id}_choice`}
+              value={o.value}
+              checked={String(value ?? '') === o.value}
+              disabled={readOnly}
+              onChange={() => onFieldChange(field.id, o.value)}
+              style={{ accentColor: 'var(--green)', margin: 0, width: 11, height: 11 }}
+            />
+            {o.label}
+          </label>
+        ))}
       </div>
     );
   }
@@ -265,7 +396,17 @@ function FieldInput({ field, data, readOnly, onFieldChange, onFieldsChange, styl
       placeholder={field.placeholder}
       readOnly={readOnly}
       onFocus={isNumber ? (e) => e.target.select() : undefined}
-      onChange={(e) => onFieldChange(field.id, isNumber ? Number(e.target.value) : e.target.value)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        if (!isNumber) return onFieldChange(field.id, raw);
+        // A number input reports '' for anything it cannot parse yet, and a lone minus
+        // sign is one of those. Number('') is 0, so pressing minus used to overwrite the
+        // field with a zero before the digits arrived - which meant no number field on
+        // any sheet could be given a negative value by typing at all. Passed through
+        // instead, and resolved the moment it parses.
+        if (raw === '' || raw === '-') return onFieldChange(field.id, raw);
+        onFieldChange(field.id, Number(raw));
+      }}
     />
   );
 }
@@ -343,13 +484,20 @@ function BracketPortrait({ initial, portraitUrl, size = 64, onUpload, shadowFilt
   );
 }
 
-function SheetHeaderBlock({ template, data, portraitUrl, onPortraitUpload, portraitShadow, onTogglePortraitShadow, onOpenLink, onFieldChange, onDeathSave, onStabilize, armedLuck, setArmedLuck, armedNegate, setArmedNegate, allowFumbleShield, canRoll }: {
+function SheetHeaderBlock({ template, data, portraitUrl, onPortraitUpload, portraitShadow, onTogglePortraitShadow, onOpenLink, onFieldChange, onFieldsChange, onPharmaChange, pharmaUndo, onUndoPharma, readOnly, onDeathSave, onStabilize, armedLuck, setArmedLuck, armedNegate, setArmedNegate, allowFumbleShield, xpRate, canRoll }: {
   template: SheetTemplate; data: SheetData; portraitUrl?: string | null;
   onPortraitUpload?: (file: File) => void;
   portraitShadow?: boolean;
   onTogglePortraitShadow?: () => void;
   onOpenLink?: (source: NonNullable<SheetField['source']>) => void;
   onFieldChange: (fieldId: string, value: SheetFieldValue) => void;
+  onFieldsChange?: (fields: Record<string, string | number>) => void;
+  /** Apply a change to what is running, naming it for the UNDO button. */
+  onPharmaChange?: (fields: Record<string, string | number>, label: string) => void;
+  /** The last such change, or null while nothing has been changed to put back. */
+  pharmaUndo?: { label: string; before: Record<string, string | number> } | null;
+  onUndoPharma?: () => void;
+  readOnly?: boolean;
   onDeathSave?: () => void;
   onStabilize?: () => void;
   /** LUCK armed for the next roll (declared before rolling, per CP:R). */
@@ -359,6 +507,7 @@ function SheetHeaderBlock({ template, data, portraitUrl, onPortraitUpload, portr
   armedNegate?: boolean;
   setArmedNegate?: (v: boolean) => void;
   allowFumbleShield?: boolean;
+  xpRate?: 'fast' | 'slow';
   canRoll?: boolean;
 }) {
   const h = template.header;
@@ -395,7 +544,7 @@ function SheetHeaderBlock({ template, data, portraitUrl, onPortraitUpload, portr
               onClick={onOpenLink ? () => onOpenLink('token_hp') : undefined}
               style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', cursor: onOpenLink ? 'pointer' : 'default' }}
             >
-              <span style={{ fontSize: '0.6rem', opacity: 0.65 }}>HP</span>
+              <span style={{ ...barLabel }}>HP</span>
               <div style={{ flex: 1, display: 'flex', gap: max > 40 ? '1px' : '2px', height: '12px', border: `1px solid ${hpColor}`, background: 'color-mix(in srgb, var(--black) 60%, transparent)', padding: '1px', transition: 'border-color 0.3s' }}>
                 {max > 0 ? Array.from({ length: max }, (_, i) => (
                   <div
@@ -410,7 +559,7 @@ function SheetHeaderBlock({ template, data, portraitUrl, onPortraitUpload, portr
                   <div style={{ width: `${hpPct}%`, height: '100%', background: 'var(--green)' }} />
                 )}
               </div>
-              <span style={{ fontSize: '0.65rem', color: hpColor, transition: 'color 0.3s' }}>{hp ?? 0}/{hpMax ?? 0}</span>
+              <span style={{ ...barValue, color: hpColor, transition: 'color 0.3s' }}>{hp ?? 0}/{hpMax ?? 0}</span>
             </div>
           );
         })()}
@@ -527,6 +676,128 @@ function SheetHeaderBlock({ template, data, portraitUrl, onPortraitUpload, portr
             ))}
           </div>
         )}
+        {h.xpBar && (() => {
+          // Under the HP bar and its chips, because it answers the same kind of question:
+          // how far through something am I. Display only - the number is typed on the
+          // STATS tab, and the level field stays the player's, since advancing grants
+          // skill points and sometimes a Focus and both are choices.
+          const p = xpProgress(data, xpRate);
+          const ready = p.ready || p.capped;
+          const barColor = ready ? 'var(--cyan)' : 'var(--green)';
+          return (
+            <div style={{ marginTop: '6px' }} title={`Experience toward the next level. ${describeXp(p)}`}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ ...barLabel }}>EXP</span>
+                <div style={{
+                  flex: 1, height: '12px', border: `1px solid ${barColor}`, padding: '1px',
+                  background: 'color-mix(in srgb, var(--black) 60%, transparent)',
+                }}>
+                  <div style={{
+                    width: `${Math.round(p.fraction * 100)}%`, height: '100%',
+                    background: barColor, transition: 'width 0.2s',
+                  }} />
+                </div>
+                <span style={{ ...barValue, color: barColor }}>
+                  {p.nextAt === null ? p.xp : `${p.xp}/${p.nextAt}`}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.6rem', marginTop: '3px', letterSpacing: '1px', color: ready ? 'var(--cyan)' : undefined, opacity: ready ? 1 : 0.65 }}>
+                {describeXp(p)}
+              </div>
+            </div>
+          );
+        })()}
+        {/* What is running, in the header rather than in a section, so it follows the
+            player onto every tab. A drug wears off at the end of a scene and bills System
+            Strain for it; a reminder that only exists on GEAR is one somebody is going to
+            walk past. Draws nothing at all while a character is on nothing. */}
+        {/* What is loaded, and the way back out. A plug is not spent, so unloading returns
+            nothing to the inventory - the cylinder was never used up. */}
+        {hasSkillplugs(template.id) && plugsRunning(data).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+            {plugsRunning(data).map((plug) => (
+              <span
+                key={plug.skill}
+                title={`Skillplug: grants ${plug.skill.replace(/_/g, ' ')} at level-${plug.level} while loaded. Each plug past the first widens the automatic failure band by one.`}
+                style={{
+                  border: '1px solid var(--cyan)', color: 'var(--cyan)',
+                  fontSize: '0.6rem', letterSpacing: '1px',
+                  padding: '1px 4px 1px 6px', display: 'inline-flex', alignItems: 'center', gap: '5px',
+                  background: 'color-mix(in srgb, var(--cyan) 12%, transparent)',
+                }}
+              >
+                {plug.skill.replace(/_/g, ' ').toUpperCase()}-{plug.level}
+                {!readOnly && onFieldsChange && (
+                  <button
+                    type="button"
+                    aria-label={`Unload ${plug.skill}`}
+                    onClick={() => onFieldsChange(unloadPlug(data, plug.skill))}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--danger)',
+                      cursor: 'pointer', padding: 0, fontSize: '0.75rem', lineHeight: 1,
+                    }}
+                  >×</button>
+                )}
+              </span>
+            ))}
+            {plugsRunning(data).length > 1 && (
+              <span style={{ fontSize: '0.6rem', opacity: 0.7, alignSelf: 'center' }}>
+                {plugsRunning(data).length} plugs — checks crash on {1 + plugsRunning(data).length} or less, attacks on {plugsRunning(data).length}
+              </span>
+            )}
+          </div>
+        )}
+        {/* A crashed jack is a state the player has to see: their skills are quietly lower
+            until it comes back, and nothing else on the sheet says so. In the header for
+            the same reason the drug strip is - it follows them onto every tab. */}
+        {hasSkillplugs(template.id) && plugsLocked(data) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+            <span
+              title="A natural 2 on a plug-augmented check, or a natural 1 on an attack, locks the jack for the scene (p64). Whatever is loaded grants nothing until it comes back."
+              style={{
+                border: '1px solid var(--danger)', color: 'var(--danger)',
+                fontSize: '0.6rem', letterSpacing: '1px', padding: '1px 6px',
+                background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
+              }}
+            >PLUG JACK DOWN</span>
+            {!readOnly && onFieldsChange && (
+              <button
+                type="button"
+                className="utility-btn"
+                style={{ fontSize: '0.6rem', padding: '2px 10px', whiteSpace: 'nowrap' }}
+                onClick={() => onFieldsChange(clearCrash())}
+                title="The scene has ended - the jack comes back up and whatever is loaded works again."
+              >REBOOT JACK</button>
+            )}
+          </div>
+        )}
+        {hasPharma(template.id) && (activeDrugs(data).length > 0 || pharmaUndo) && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {activeDrugs(data).length > 0 && (
+              <PharmaSection
+                data={data}
+                readOnly={!!readOnly}
+                onFieldChange={onFieldChange}
+                onPharmaChange={onPharmaChange}
+              />
+            )}
+            {/* Only after something has actually changed, and only one step back. The x
+                bills System Strain, so a misclick is expensive enough to deserve a way
+                out - but a button that is always there is clutter on a header that has
+                to stay readable. */}
+            {!readOnly && pharmaUndo && (
+              <div>
+                <button
+                  type="button"
+                  className="utility-btn"
+                  style={{ fontSize: '0.6rem', padding: '2px 10px', whiteSpace: 'nowrap' }}
+                  onClick={onUndoPharma}
+                  title="Put back what that change overwrote, Strain and doses included."
+                >UNDO {pharmaUndo.label}</button>
+              </div>
+            )}
+          </div>
+        )}
         {h.luckField && (() => {
           const luckCur = num(data[h.luckField!]) ?? 0;
           const luckMax = h.luckMaxField ? (num(data[h.luckMaxField]) ?? 0) : luckCur;
@@ -628,20 +899,281 @@ function SheetHeaderBlock({ template, data, portraitUrl, onPortraitUpload, portr
   );
 }
 
-function GridSection({ section, data, readOnly, onFieldChange, onRoll, effects }: {
+/**
+ * Weapons owned but not carried.
+ *
+ * The book limits what you carry by Encumbrance, not by a slot count, and Encumbrance is
+ * about what is ON you - so a rifle in a safehouse belongs on neither list of the ones the
+ * resolver fires. It lives here instead: unlimited, free, and saying where it actually is.
+ *
+ * Shown short on purpose. A stashed weapon is a thing you own, not a thing you are about
+ * to roll, so the name, what it hits for, what it would cost to pick up, and where it is
+ * are the whole story. Its full stat block travels with it and comes back intact.
+ */
+function WeaponStashSection({ section, data, readOnly, onFieldChange, onFieldsChange, rows }: {
   section: SheetSection; data: SheetData; readOnly: boolean;
+  onFieldChange: (fieldId: string, value: SheetFieldValue) => void;
+  onFieldsChange?: (fields: Record<string, string | number>) => void;
+  rows: number;
+}) {
+  const stash = readStash(data);
+  const free = firstFreeRow(data, rows);
+
+  const write = (next: StashedWeapon[]) => onFieldChange(STASH_FIELD, writeStash(next));
+
+  /**
+   * Take one out of the stash and into a carried row.
+   *
+   * One save rather than eleven: the row's fields and the shortened stash have to land
+   * together, or a crash between them leaves the weapon in both places or neither.
+   */
+  const takeOut = (index: number) => {
+    if (free === null) return;
+    const next = stash.filter((_, n) => n !== index);
+    onFieldsChange?.({
+      ...stashedToCarried(stash[index], free),
+      [STASH_FIELD]: writeStash(next),
+    });
+  };
+
+  const setLocation = (index: number, location: string) =>
+    write(stash.map((w, n) => (n === index ? { ...w, location } : w)));
+
+  /** The carried rows there is anything to put away from. */
+  const carried = Array.from({ length: rows }, (_, n) => n + 1)
+    .map((i) => ({ i, name: String(data[`weapon${i}_name`] ?? '').trim() }))
+    .filter((r) => r.name);
+
+  /**
+   * Put a carried weapon away.
+   *
+   * Both moves live here rather than one on each list: they are the same gesture in two
+   * directions, and a button on the weapons grid would have meant an eighth thing in a row
+   * that ran out of space at seven.
+   */
+  const putAway = (i: number) => {
+    onFieldsChange?.({
+      // Closed up rather than blanked: the sheet draws rows up to the last one holding
+      // anything, so an emptied row above a filled one stays on screen as a weapon nobody
+      // can get rid of.
+      ...compactCarried(data, rows, i),
+      [STASH_FIELD]: writeStash([...stash, carriedToStashed(data, i)]),
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      {stash.length === 0 ? (
+        <div style={{ fontSize: '0.65rem', opacity: 0.5 }}>
+          Nothing stashed. Weapons you own but are not carrying live here — they cost no
+          Encumbrance and can be picked up on the GEAR tab.
+        </div>
+      ) : stash.map((w, i) => (
+        <div
+          key={`${w.name}-${i}`}
+          style={{
+            display: 'grid', gridTemplateColumns: '1fr 60px 40px 1fr auto',
+            gap: '6px', alignItems: 'center', fontSize: '0.7rem',
+            // The last row needs no line under it: a rule with nothing below it reads as
+            // a missing entry rather than as the end of the list.
+            borderBottom: i === stash.length - 1 ? 'none' : '1px solid var(--green)',
+            opacity: 1, padding: '5px 0',
+          }}
+        >
+          <span style={{ color: 'var(--cyan)' }}>{w.name || '(unnamed)'}</span>
+          <span style={{ opacity: 0.7 }}>{w.dmg}</span>
+          <span style={{ opacity: 0.7 }} title="Encumbrance if you pick it up">{w.enc || '-'}</span>
+          <input
+            aria-label={`Location of ${w.name || 'weapon'}`}
+            value={w.location}
+            placeholder="where is it?"
+            readOnly={readOnly}
+            onChange={(e) => setLocation(i, e.target.value)}
+            style={{ ...inputStyle, fontSize: '0.65rem', padding: '1px 4px' }}
+          />
+          {!readOnly && (
+            <button
+              type="button"
+              className="utility-btn"
+              style={{ fontSize: '0.6rem', padding: '1px 6px' }}
+              disabled={free === null}
+              title={free === null
+                ? 'No free weapon row — put one away first'
+                : 'Move to your carried weapons, stowed'}
+              onClick={() => takeOut(i)}
+            >CARRY</button>
+          )}
+        </div>
+      ))}
+      {free === null && stash.length > 0 && (
+        <div style={{ fontSize: '0.6rem', color: 'var(--warning)' }}>
+          All {rows} weapon rows are full. Stash one to make room.
+        </div>
+      )}
+      {!readOnly && carried.length > 0 && (
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' }}>
+          <select
+            aria-label="Stash a carried weapon"
+            className="sheet-input"
+            style={{ ...inputStyle, fontSize: '0.7rem', maxWidth: '200px' }}
+            value=""
+            onChange={(e) => { if (e.target.value) putAway(Number(e.target.value)); }}
+          >
+            <option value="">+ PUT ONE AWAY…</option>
+            {carried.map((r) => <option key={r.i} value={r.i}>{r.name}</option>)}
+          </select>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What a character is carrying, at the top of GEAR.
+ *
+ * Shown whether or not the table enforces it - knowing what you have on you is useful at
+ * a table that never charges you for it, and the book is explicit that charging is
+ * optional. When the ENCUMBRANCE house rule is off this is a count and nothing more; when
+ * it is on, the Move field below has already had the penalty taken off.
+ *
+ * Readied and Stowed are counted apart because the book limits them apart: a character can
+ * be over on one and fine on the other.
+ */
+function EncumbranceSection({ section, data, readOnly, onFieldChange, enforced }: {
+  section: SheetSection; data: SheetData; readOnly: boolean;
+  onFieldChange: (fieldId: string, value: SheetFieldValue) => void;
+  enforced?: boolean;
+}) {
+  const state = encState(data, carriedEnc(data));
+  const tone = state.impossible ? 'var(--danger)'
+    : state.overload > 0 ? 'var(--warning)'
+    : 'var(--green)';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <div style={{ fontSize: '0.7rem', letterSpacing: '1px', color: tone }}>
+        {describeEnc(state)}
+      </div>
+      {state.overload > 0 && (enforced ? (
+        // The effective rate is stated here rather than written into MOVE, which stays the
+        // character's own number and matches what the server computed. Move is measured
+        // with the ruler and enforced by nobody, so saying it is enough - and one number
+        // that disagrees with the server is worse than two that agree and are explained.
+        <div style={{ fontSize: '0.6rem', color: 'var(--warning)' }}>
+          Carrying this, Move is {encumberedMove(num(data.move), state)}m
+          {' '}rather than {num(data.move)}m.
+        </div>
+      ) : (
+        // Said out loud rather than silently ignored: the number is over the limit and the
+        // Move rate is deliberately not paying for it.
+        <div style={{ fontSize: '0.6rem', opacity: 0.6 }}>
+          Not enforced — the ENCUMBRANCE house rule is off, so Move is unchanged.
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        {section.fields.map((f) => (
+          <label key={f.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{ fontSize: '0.55rem', opacity: 0.65, letterSpacing: '1px' }}>{f.label}</span>
+            <FieldInput
+              field={f} data={data} readOnly={readOnly} onFieldChange={onFieldChange}
+              style={{ width: '90px', padding: '2px 4px', fontSize: '0.7rem', textAlign: 'center' }}
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A field that takes the whole width of its section: a heading, then the control.
+ *
+ * Shared by every layout that has one, so a MODS list looks the same wherever it appears.
+ * The armor grid used to draw its own instead - each field there is a bordered stat box
+ * with a centred 0.95rem control, which is right for a number and wrong for a list of
+ * chips: it boxed the list, centred the picker, and made the same field look like a
+ * different feature depending on which section you found it in.
+ */
+function FullWidthField({ field, data, readOnly, onFieldChange, onFieldsChange, allFields }: {
+  field: SheetField; data: SheetData; readOnly: boolean;
+  onFieldChange: (fieldId: string, value: SheetFieldValue) => void;
+  onFieldsChange?: (fields: Record<string, string | number>) => void;
+  /** For resolving `inlineField`, which names another field by id. */
+  allFields?: SheetField[];
+}) {
+  const inline = field.inlineField
+    ? (allFields ?? []).find((f) => f.id === field.inlineField)
+    : undefined;
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: '0.55rem', opacity: 0.65, letterSpacing: '1px', padding: '0 4px', textAlign: 'left',
+  };
+
+  const control = (f: SheetField) => (
+    <FieldInput
+      field={f}
+      data={data}
+      readOnly={readOnly}
+      onFieldChange={onFieldChange}
+      onFieldsChange={onFieldsChange}
+      style={{ padding: '2px 4px', fontSize: '0.7rem' }}
+    />
+  );
+
+  const one = (f: SheetField) => (
+    <div key={f.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+      <div style={labelStyle}>{f.label}</div>
+      {control(f)}
+    </div>
+  );
+
+  return (
+    <div style={{ gridColumn: '1 / -1', margin: '2px 0' }}>
+      {inline ? (
+        // Two short controls that would each waste a line alone. A grid rather than a
+        // flex row: the controls are different heights - a pair of radios against a select
+        // - and aligning the columns by either edge put the two labels on different lines.
+        // Two explicit rows keeps the labels level with each other and the controls level
+        // with each other, whatever is in them.
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 120px', gap: '2px 12px', justifyContent: 'start' }}>
+          <div style={labelStyle}>{field.label}</div>
+          <div style={labelStyle}>{inline.label}</div>
+          <div style={{ alignSelf: 'center' }}>{control(field)}</div>
+          <div style={{ alignSelf: 'center' }}>{control(inline)}</div>
+        </div>
+      ) : one(field)}
+    </div>
+  );
+}
+
+function GridSection({ section, allFields, data, readOnly, onFieldChange, onRoll, effects }: {
+  section: SheetSection; allFields: SheetField[]; data: SheetData; readOnly: boolean;
   onFieldChange: (fieldId: string, value: SheetFieldValue) => void;
   onRoll?: (fieldId: string) => void;
   effects: SheetEffects;
 }) {
-  // maxField pairs render inside their base field's cell as CUR / MAX
+  // maxField pairs render inside their base field's cell as CUR / MAX. The maximum is
+  // looked up across the whole sheet, not just this block: CWN's Damage Soak is spent in
+  // COMBAT but set in ARMOR, and a pool showing its current value with no maximum beside
+  // it is the one number a player cannot read at a glance.
   const maxIds = new Set(section.fields.filter(f => f.maxField).map(f => f.maxField as string));
   const visible = section.fields.filter(f => !maxIds.has(f.id));
   const numInput: React.CSSProperties = { textAlign: 'center', fontSize: '0.95rem', padding: '2px', background: 'transparent', border: 'none' };
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(82px, 1fr))', gap: '6px' }}>
       {visible.map((field) => {
-        const maxField = field.maxField ? section.fields.find(f => f.id === field.maxField) : undefined;
+        const maxField = field.maxField ? allFields.find(f => f.id === field.maxField) : undefined;
+        // A list of chips is a row of prose, not a stat box. Rendered by the shared
+        // full-width field so it matches the same list in the weapons table rather than
+        // being boxed and centred like the numbers around it.
+        if (field.fullWidth) {
+          return (
+            <FullWidthField
+              key={field.id} field={field} data={data}
+              readOnly={readOnly} onFieldChange={onFieldChange}
+            />
+          );
+        }
         return (
           <div key={field.id} title={field.hint} style={{ border: '1px solid var(--green)', background: 'color-mix(in srgb, var(--black) 35%, transparent)', textAlign: 'center', display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontSize: '0.55rem', opacity: 0.65, letterSpacing: '1px', padding: '4px 2px 0', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 3 }}>
@@ -663,6 +1195,17 @@ function GridSection({ section, data, readOnly, onFieldChange, onRoll, effects }
             ) : (
               <FieldInput field={field} data={data} readOnly={readOnly} onFieldChange={onFieldChange} style={numInput} />
             )}
+            {/* The strip ROLL and REFILL sit in, without being a control: a number input
+                fills its cell, so a suffix cannot go beside the value, and MOVE reading a
+                bare "10" says nothing about what it is ten of. Same geometry as those
+                buttons so the box keeps one shape whichever it has. */}
+            {field.unit && (
+              <div style={{
+                marginTop: 'auto', width: '100%', borderTop: '1px solid var(--green)',
+                fontSize: '0.6rem', letterSpacing: '1px', padding: '3px 0',
+                opacity: 0.65, textAlign: 'center',
+              }}>{field.unit}</div>
+            )}
             {field.roll && (
               <button
                 onClick={onRoll ? () => onRoll(field.id) : undefined}
@@ -678,6 +1221,22 @@ function GridSection({ section, data, readOnly, onFieldChange, onRoll, effects }
                 }}
               >
                 <DiceIcon size={12} /> ROLL
+              </button>
+            )}
+            {field.refillFrom && (
+              <button
+                onClick={readOnly ? undefined : () => onFieldChange(field.id, num(data[field.refillFrom as string]))}
+                disabled={readOnly}
+                title={`Refill ${field.label} to its maximum. The game decides when that happens.`}
+                style={{
+                  width: '100%', marginTop: 'auto',
+                  borderTop: '1px solid var(--green)', borderLeft: 'none', borderRight: 'none', borderBottom: 'none',
+                  background: 'none', fontSize: '0.55rem', letterSpacing: '1px', padding: '3px 0',
+                  color: 'var(--green)', opacity: readOnly ? 0.5 : 0.9,
+                  cursor: readOnly ? 'default' : 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                REFILL
               </button>
             )}
           </div>
@@ -721,13 +1280,21 @@ function SkillsSection({ section, data, readOnly, onFieldChange, onRoll, effects
         // The chrome's level and stat, not the typed ones: this is the number you roll
         // with, and the server resolves the roll the same way. A skill that reads 3 here
         // and rolls at 9 is worse than showing nothing.
-        const lvl = effectiveValue(effects, field.id, data[field.id]);
+        const chromed = effectiveValue(effects, field.id, data[field.id]);
+        // A loaded skillplug grants the skill while it is in (p64), and the server resolves
+        // the roll the same way - so the BASE has to say so, or the sheet reads 0 for a
+        // skill that rolls at 1 and the plug looks broken.
+        const plugged = plugFor(data, field.id);
+        const lvl = plugged === null ? chromed : Math.max(chromed, plugged);
         const base = lvl + (field.stat ? effectiveValue(effects, field.stat, data[field.stat]) : 0);
         const boost = effects.fields[field.id];
         return (
           <div key={field.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '1px 4px', background: lvl > 0 ? 'color-mix(in srgb, var(--black) 45%, transparent)' : 'transparent' }}>
             <span style={{ flex: 1, fontSize: '0.68rem', opacity: lvl > 0 ? 1 : 0.6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {field.label}{lvl > 0 ? ' ●' : ''}
+              {plugged !== null && (
+                <span style={{ color: 'var(--cyan)' }} title={`Skillplug: granted at level-${plugged} while it is loaded`}> ⏺</span>
+              )}
             </span>
             {boost && boost.delta !== 0 && <ChromeBadge effect={boost} />}
             <input
@@ -777,10 +1344,13 @@ function WeaponsSection({ section, data, readOnly, onFieldChange, onFieldsChange
    * Fields into rows of `perRow`, except a fullWidth field, which takes a row to itself.
    * That is what lets an entry carry a notes box without the grid arithmetic collapsing.
    */
+  // A field claimed by another's `inlineField` is drawn beside it, not again on its own.
+  const inlined = new Set(section.fields.map((f) => f.inlineField).filter(Boolean) as string[]);
   const toRows = (fields: SheetField[]) => {
     const out: SheetField[][] = [];
     let cur: SheetField[] = [];
     for (const f of fields) {
+      if (inlined.has(f.id)) continue;
       if (f.fullWidth) {
         if (cur.length) { out.push(cur); cur = []; }
         out.push([f]);
@@ -809,9 +1379,20 @@ function WeaponsSection({ section, data, readOnly, onFieldChange, onFieldsChange
   // CP:R keeps its hand-tuned column widths; other row shapes get a generic
   // grid: name column flexes, selects get room, the rest stay compact.
   const widthRow = (rows.find(r => r.length === perRow) ?? rows[0] ?? []);
+  /**
+   * The name column takes the slack, but only so much of it.
+   *
+   * `1fr` gave it every spare pixel, which is invisible in a docked panel and absurd in a
+   * full tab: at 1600px the weapon NAME box measured 1112px for the word "gun". minmax
+   * keeps it flexible downwards - it still shrinks on a narrow pane rather than forcing
+   * the row to overflow - and stops it growing past a width a weapon name could ever use.
+   */
+  const NAME_COL = 'minmax(0, 320px)';
   const gridTemplateColumns = perRow === 4
-    ? '1fr 70px 130px 44px'
-    : widthRow.map((f, i) => (i === 0 ? '1fr' : f.type === 'select' ? '90px' : '56px')).join(' ');
+    ? `${NAME_COL} 70px 130px 44px`
+    : widthRow.map((f, i) => (
+      i === 0 ? NAME_COL : f.type === 'select' ? '90px' : '56px'
+    )).join(' ');
 
   const hasData = (group: SheetField[][]) =>
     group.some(row => row.some(f => {
@@ -845,17 +1426,11 @@ function WeaponsSection({ section, data, readOnly, onFieldChange, onFieldsChange
   ));
 
   const fullWidthRow = (field: SheetField) => (
-    <div key={field.id} style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '2px', margin: '2px 0' }}>
-      <div style={{ fontSize: '0.55rem', opacity: 0.65, letterSpacing: '1px', padding: '0 4px', textAlign: 'left' }}>{field.label}</div>
-      <FieldInput
-        field={field}
-        data={data}
-        readOnly={readOnly}
-        onFieldChange={onFieldChange}
-        onFieldsChange={onFieldsChange}
-        style={cell}
-      />
-    </div>
+    <FullWidthField
+      key={field.id} field={field} data={data} readOnly={readOnly}
+      onFieldChange={onFieldChange} onFieldsChange={onFieldsChange}
+      allFields={section.fields}
+    />
   );
 
   const fieldRow = (row: SheetField[]) => row.map((field, i) => (
@@ -882,7 +1457,15 @@ function WeaponsSection({ section, data, readOnly, onFieldChange, onFieldsChange
     return (
       <div style={{ display: 'grid', gridTemplateColumns, gap: '3px 4px', alignItems: 'center' }}>
         {labelRow(rows[0] ?? [])}
-        {rows.map((row) => <React.Fragment key={row[0].id}>{fieldRow(row)}</React.Fragment>)}
+        {/* fullWidth means the same thing here as in a grouped section. It used to be
+            honoured only there, so a section that did not repeat an entry - the weapons
+            table - squeezed its MODS list into the first column and lost the heading with
+            it: a chip carrying a sentence of effect text wrapped to one word per line. */}
+        {rows.map((row) => (
+          <React.Fragment key={row[0].id}>
+            {row[0].fullWidth ? fullWidthRow(row[0]) : fieldRow(row)}
+          </React.Fragment>
+        ))}
       </div>
     );
   }
@@ -899,7 +1482,7 @@ function WeaponsSection({ section, data, readOnly, onFieldChange, onFieldsChange
                     that actually shows the row: entries can hide different rows, so
                     "first entry" alone would strand a heading. */}
                 {gi > 0 && ri === 0 && (
-                  <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--green)', opacity: 0.25, margin: '4px 0 2px' }} />
+                  <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--green)', opacity: 0.45, margin: '10px 0 6px' }} />
                 )}
                 {row[0].fullWidth
                   ? fullWidthRow(row[0])
@@ -1181,13 +1764,46 @@ function ListSection({ section, data, readOnly, onFieldChange, onOpenLink }: {
   );
 }
 
-export function SheetRenderer({ template, data, readOnly = false, onFieldChange, portraitUrl, onPortraitUpload, portraitShadow, onTogglePortraitShadow, onOpenLink, onRoll, onDeathSave, onStabilize, allowFumbleShield = false, hiddenTabs, onCastSpell, onRollAbility, onResistDrain, onFieldsChange, onSectionAction }: SheetRendererProps) {
+/**
+ * A section with its retired fields dropped, or null if that empties it.
+ *
+ * A retired field is one something else has replaced (see SheetField.retired). It stays on
+ * screen while it still holds text - the old Gear box has real notes typed into it on
+ * sheets that predate the INVENTORY rows - and disappears once emptied, so nobody loses
+ * anything and nobody new is handed a box that has been superseded.
+ *
+ * Untouched sections are returned as they are rather than rebuilt: the cheap path is the
+ * one every section but one takes, and a new object each render would defeat the memos
+ * downstream of it.
+ *
+ * Not for a section with `groupSize`, which counts fields to find its rows.
+ */
+function dropEmptyRetired(section: SheetSection, data: SheetData): SheetSection | null {
+  if (!section.fields.some((f) => f.retired)) return section;
+  const fields = section.fields.filter(
+    (f) => !f.retired || String(data[f.id] ?? '').trim() !== '',
+  );
+  if (fields.length === section.fields.length) return section;
+  // A section that was only the retired field goes with it, rather than leaving a heading
+  // over nothing.
+  return fields.length === 0 ? null : { ...section, fields };
+}
+
+export function SheetRenderer({ template, data, readOnly = false, onFieldChange, portraitUrl, onPortraitUpload, portraitShadow, onTogglePortraitShadow, onOpenLink, onRoll, onDeathSave, onStabilize, allowFumbleShield = false, xpRate, encumbranceEnforced = false, hiddenTabs, onCastSpell, onRollAbility, onResistDrain, onFieldsChange, onSectionAction }: SheetRendererProps) {
   const tabs = (template.tabs ?? ['SHEET']).filter(t => !hiddenTabs?.includes(t));
   const [activeTab, setActiveTab] = useState(tabs[0]);
   // What the character's chrome is doing to their numbers. Computed once for the whole
   // sheet rather than per field: it reads the cyberware list, which every stat and skill
   // would otherwise re-read and re-scan for itself.
   const effects = useMemo(() => sheetEffects(data, template), [data, template]);
+  // How many carried weapon rows this template declares. Counted rather than imported, so
+  // the stash cannot disagree with the sheet it is moving weapons into.
+  const weaponRows = useMemo(
+    () => template.sections
+      .flatMap((s) => s.fields ?? [])
+      .filter((f) => /^weapon\d+_name$/.test(f.id)).length,
+    [template],
+  );
   // If the active tab gets hidden (house rule toggled off), fall back to the
   // first visible one.
   useEffect(() => {
@@ -1215,8 +1831,96 @@ export function SheetRenderer({ template, data, readOnly = false, onFieldChange,
     });
   };
 
-  const sectionsForTab = template.sections.filter(s => (s.tab ?? tabs[0]) === activeTab);
+  /**
+   * The last change to what is running, so it can be put back.
+   *
+   * Only pharmaceuticals have this, and only because the x is a one-way door: it bills
+   * System Strain, which is the correct reading of the rules and a harsh answer to a
+   * misclick. So the change is snapshotted rather than the button softened.
+   *
+   * It lives here rather than in PharmaSection because ending your only drug unmounts that
+   * component, and that is exactly when somebody wants the change back.
+   */
+  const [pharmaUndo, setPharmaUndo] = useState<
+    { label: string; before: Record<string, string | number> } | null
+  >(null);
+
+  /**
+   * Apply a pharmaceutical change, remembering what it overwrote.
+   *
+   * Only the fields being written are captured, so undoing puts back exactly what this
+   * change touched and nothing else. It is one step deep on purpose: two would need a
+   * stack, and the button exists for the press you did not mean rather than as history.
+   */
+  const applyPharma = React.useCallback((
+    fields: Record<string, string | number>, label: string,
+  ) => {
+    if (!onFieldsChange) return;
+    const before: Record<string, string | number> = {};
+    for (const key of Object.keys(fields)) {
+      const value = data[key];
+      // Arrays are stored as JSON on the sheet, which is the form these fields write, so
+      // a restored value round-trips rather than arriving as "[object Object]".
+      before[key] = typeof value === 'number' ? value
+        : Array.isArray(value) ? JSON.stringify(value)
+          : String(value ?? '');
+    }
+    setPharmaUndo({ label, before });
+    onFieldsChange(fields);
+  }, [data, onFieldsChange]);
+
+  const undoPharma = () => {
+    if (!pharmaUndo || !onFieldsChange) return;
+    onFieldsChange(pharmaUndo.before);
+    setPharmaUndo(null);
+  };
+
+  /**
+   * CONSUME on an inventory row that holds a drug.
+   *
+   * Here rather than inside InventorySection because that table is on all four systems and
+   * this rule is Cities Without Number's. Readied only: injecting is a Main Action (p60)
+   * and reaching a Stowed item is another (p48), so a dose you have not readied is not one
+   * you can take this turn. The disabled button says exactly that.
+   */
+  const loadAction: RowAction | undefined = useMemo(() => {
+    if (!hasSkillplugs(template.id) || !onFieldsChange) return undefined;
+    return {
+      label: 'LOAD',
+      applies: (item) => loadable(data, item).plug !== null,
+      enabled: (item) => loadable(data, item).ok,
+      title: (item) => loadable(data, item).why,
+      onAct: (index) => {
+        const fields = loadFromRow(data, index);
+        if (fields) onFieldsChange(fields);
+      },
+    };
+  }, [template.id, data, onFieldsChange]);
+
+  const consumeAction: RowAction | undefined = useMemo(() => {
+    if (!hasPharma(template.id) || !onFieldsChange) return undefined;
+    return {
+      label: 'CONSUME',
+      applies: (item) => consumable(item).drug !== null,
+      enabled: (item) => consumable(item).ok,
+      title: (item) => consumable(item).why,
+      onAct: (index) => {
+        const fields = takeDoseFromRow(data, index);
+        if (!fields) return;
+        const name = readInventory(data)[index]?.name ?? 'DOSE';
+        applyPharma(fields, `CONSUME ${name.toUpperCase()}`);
+      },
+    };
+  }, [template.id, data, onFieldsChange, applyPharma]);
+
+  const sectionsForTab = template.sections
+    .filter(s => (s.tab ?? tabs[0]) === activeTab)
+    .map(s => dropEmptyRetired(s, data))
+    .filter(s => s !== null) as SheetSection[];
   const tabHasRolls = sectionsForTab.some(s => s.fields.some(f => f.roll));
+  // Every field on the sheet, for looking up a `maxField` that lives in another block.
+  const allFields = React.useMemo(
+    () => template.sections.flatMap(s => s.fields ?? []), [template]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -1234,7 +1938,7 @@ export function SheetRenderer({ template, data, readOnly = false, onFieldChange,
         .sheet-input::placeholder { color: var(--green); opacity: 0.3; font-style: italic; }
       `}</style>
 
-      <SheetHeaderBlock template={template} data={data} portraitUrl={portraitUrl} onPortraitUpload={onPortraitUpload} portraitShadow={portraitShadow} onTogglePortraitShadow={onTogglePortraitShadow} onOpenLink={onOpenLink} onFieldChange={onFieldChange} onDeathSave={onDeathSave} onStabilize={onStabilize} armedLuck={armedLuck} setArmedLuck={setArmedLuck} armedNegate={armedNegate} setArmedNegate={setArmedNegate} allowFumbleShield={effectiveAllowFumbleShield} canRoll={!!onRoll} />
+      <SheetHeaderBlock template={template} data={data} portraitUrl={portraitUrl} onPortraitUpload={onPortraitUpload} portraitShadow={portraitShadow} onTogglePortraitShadow={onTogglePortraitShadow} onOpenLink={onOpenLink} onFieldChange={onFieldChange} onFieldsChange={onFieldsChange} onPharmaChange={applyPharma} pharmaUndo={pharmaUndo} onUndoPharma={undoPharma} readOnly={readOnly} onDeathSave={onDeathSave} onStabilize={onStabilize} armedLuck={armedLuck} setArmedLuck={setArmedLuck} armedNegate={armedNegate} setArmedNegate={setArmedNegate} allowFumbleShield={effectiveAllowFumbleShield} xpRate={xpRate} canRoll={!!onRoll} />
 
       {/* The sheet body, and the thing that actually scrolls — not the window's own
           content box, which sits outside it. The right padding is what keeps the
@@ -1283,11 +1987,14 @@ export function SheetRenderer({ template, data, readOnly = false, onFieldChange,
               </div>
               {open && (
                 <div style={{ padding: '4px 0 6px' }}>
-                  {section.layout === 'grid' && <GridSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onRoll={handleRoll} effects={effects} />}
+                  {section.layout === 'grid' && <GridSection section={section} allFields={allFields} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onRoll={handleRoll} effects={effects} />}
                   {section.layout === 'skills' && <SkillsSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onRoll={handleRoll} effects={effects} />}
                   {section.layout === 'weapons' && <WeaponsSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onFieldsChange={onFieldsChange} />}
                   {section.layout === 'spells' && <SpellsSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onCastSpell={onCastSpell} />}
                   {section.layout === 'ability_list' && <AbilityListSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onRollAbility={onRollAbility} onResistDrain={onResistDrain} />}
+                  {section.layout === 'inventory' && <InventorySection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} rowActions={[consumeAction, loadAction].filter(Boolean) as RowAction[]} />}
+                  {section.layout === 'weapon_stash' && <WeaponStashSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onFieldsChange={onFieldsChange} rows={weaponRows} />}
+                  {section.layout === 'encumbrance' && <EncumbranceSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} enforced={encumbranceEnforced} />}
                   {section.layout === 'cyberware' && <CyberwareSection section={section} template={template} data={data} readOnly={readOnly} onFieldChange={onFieldChange} />}
                   {(section.layout === 'list' || section.layout === 'notes') && <ListSection section={section} data={data} readOnly={readOnly} onFieldChange={onFieldChange} onOpenLink={onOpenLink} />}
                 </div>

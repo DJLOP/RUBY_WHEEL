@@ -8,6 +8,7 @@
 // decided up front, which is a limit invented for the storage rather than for the game.
 
 import { typeById, describe as describeType, looksLike, type Side } from './cyberwareLocations';
+import { rowStrain, fittedModIds } from './cwnCyberMods';
 
 /** The sheet field holding the array. */
 export const CYBERWARE_FIELD = 'cyberware';
@@ -145,6 +146,8 @@ export interface CyberRow {
    * none, so a CP:R row leaves this blank rather than claiming a value it never had.
    */
   conc: Conc;
+  /** Ids of the cyberware mods fitted to this implant (CWN p71). */
+  cyberMods: string[];
   /** What it does. */
   data: string;
   /**
@@ -218,6 +221,10 @@ export function normaliseRow(raw: unknown): CyberRow {
     // Blank on a system that does not rate concealment, and on any row saved before the
     // column existed. Unknown is not the same as the easiest thing to hide.
     conc: (CONC_VALUES as string[]).includes(r.conc as string) ? (r.conc as Conc) : '',
+    // Mods fitted to this implant (p71). Carried through normalisation because they change
+    // what the system costs in Strain, and a row read back without them would quietly
+    // charge full price for a Tailored Interface somebody paid for.
+    cyberMods: fittedModIds(r as { cyberMods?: unknown }),
     data: typeof r.data === 'string' ? r.data : '',
     // Installed unless it says otherwise, so rows stored before this field existed do not
     // all switch themselves off.
@@ -245,9 +252,27 @@ export function readRows(data: Record<string, unknown> | undefined | null): Cybe
   return value.filter((r) => r && typeof r === 'object').map(normaliseRow);
 }
 
-/** What the chrome has cost, for showing beside Humanity. */
+/**
+ * What the chrome has cost, for showing beside Humanity.
+ *
+ * A raw sum, deliberately. Humanity is Cyberpunk RED's currency and CP:R has no mod table
+ * to discount it - running every row through `rowStrain` here applied a Cities Without
+ * Number rule (p71) to a Cyberpunk RED number, which is exactly the bleed
+ * systemIsolation.test.tsx exists to stop. CWN's discounted total is `totalStrain`, and
+ * the caller picks by system rather than this guessing.
+ */
 export const totalHumanityLoss = (rows: CyberRow[]): number =>
   rows.reduce((sum, r) => sum + num(r.hl), 0);
+
+/**
+ * The same total under Cities Without Number, where a fitted mod can lower it.
+ *
+ * A Tailored Interface lowers what its own system costs, so a total ignoring it would
+ * disagree with the strain ceiling printed beside it. Its own function rather than a flag
+ * on the one above: the two answer questions in different games.
+ */
+export const totalStrain = (rows: CyberRow[]): number =>
+  rows.reduce((sum, r) => sum + rowStrain(r), 0);
 
 /** What it cost in money, ignoring anything nobody priced. */
 export const totalCost = (rows: CyberRow[]): number =>
@@ -293,9 +318,14 @@ export const panelRank = (row: CyberRow, typeId: string): number => {
 /** Everything that has not been given a place yet, which is how every import arrives. */
 export const unfiledRows = (rows: CyberRow[]): CyberRow[] => rows.filter(needsPlacing);
 
-/** The System Strain a character is already carrying from chrome that is actually in them. */
+/**
+ * The System Strain a character is already carrying from chrome that is actually in them.
+ *
+ * Per row rather than a raw sum of `hl`, because a Tailored Interface lowers what its own
+ * system costs (p71) - and strain is what decides whether the next piece fits at all.
+ */
 export const installedStrain = (rows: CyberRow[]): number =>
-  rows.filter((r) => r.equipped && r.placed).reduce((n, r) => n + num(r.hl), 0);
+  rows.filter((r) => r.equipped && r.placed).reduce((n, r) => n + rowStrain(r), 0);
 
 /**
  * How much chrome a body can take.

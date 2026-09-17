@@ -4,7 +4,7 @@
 // renderer (SheetRenderer) can draw for any system. Adding a system later
 // means adding a template file, not new UI.
 
-export type SheetFieldType = 'number' | 'text' | 'textarea' | 'select' | 'tag_list';
+export type SheetFieldType = 'number' | 'text' | 'textarea' | 'select' | 'tag_list' | 'radio';
 
 /**
  * What a field can hold.
@@ -17,6 +17,16 @@ export type SheetFieldType = 'number' | 'text' | 'textarea' | 'select' | 'tag_li
 export type SheetFieldValue = string | number | unknown[];
 
 export interface SheetOption { value: string; label: string }
+
+/**
+ * A value that lives in another system and is overlaid onto the sheet at read time.
+ *
+ * Named once so the handful of places that switch on it cannot drift apart - adding
+ * a source and missing one of them is a field that reads as undefined with nothing
+ * to show for it.
+ */
+export type SheetLinkSource =
+  | 'token_hp' | 'token_hp_max' | 'bank_balance' | 'token_ac' | 'token_ac_ranged';
 
 export interface SheetField {
   id: string;
@@ -34,6 +44,11 @@ export interface SheetField {
   stat?: string;
   /** Paired field id holding this field's maximum (renders as current/max). */
   maxField?: string;
+  /** Id of the field this one refills from, with a button under the input to do it.
+   *  For a pool that empties in play and comes back all at once on a rest or a scene
+   *  change: the player still types into it freely, this is only the shortcut back to
+   *  full. `maxField` is the pairing that renders and clamps; this is the button. */
+  refillFrom?: string;
   /** Short helper text shown as a tooltip on the field. */
   hint?: string;
   /** Recomputed by the server on every save, so anything written here is overwritten.
@@ -42,6 +57,27 @@ export interface SheetField {
   derived?: true;
   /** Example value shown as ghost text inside an empty field (input placeholder). */
   placeholder?: string;
+  /**
+   * A field something else has replaced, kept only while it still holds text.
+   *
+   * The free-text Gear box is the case: the INVENTORY rows do its job properly now, but
+   * existing sheets have real notes typed into it and deleting the field would take them
+   * with it. So it renders while it has content and goes away the moment it is emptied -
+   * nobody loses anything, and nobody new is offered the box that was replaced.
+   *
+   * Retiring is a display decision only: the value stays stored, the importer still fills
+   * it, and clearing the flag brings it back.
+   */
+  retired?: true;
+  /** A unit caption under the value, e.g. METERS.
+   *  For a number that means nothing on its own - the same small caption the CUR/MAX pair
+   *  already uses, rather than a suffix inside the box, because a number input fills its
+   *  cell and has nowhere to put one. */
+  unit?: string;
+  /** Render this other field beside me on the same full-width row, each with its own
+   *  label. For two short controls that would each waste a line alone - CARRY and ENC on
+   *  a weapon, where the stat row above has no space left for either. */
+  inlineField?: string;
   /** Give this field a row of its own spanning the whole grid, with its label above it.
    *  For a notes box inside a repeated entry, where a grid cell will not do. */
   fullWidth?: boolean;
@@ -49,12 +85,21 @@ export interface SheetField {
    *  field count is not a multiple of `columns` bleeds one row's fields into the next,
    *  which quietly breaks anything keyed on a row's first field. */
   startsRow?: boolean;
+  /** For 'tag_list': the name on the chip. Without it the chip falls back to looking the
+   *  id up in `tagOptions`, which is wrong whenever that list narrows as things are
+   *  added - a picker that stops offering what is already fitted leaves the chip with
+   *  nothing to find, and it prints the raw id. */
+  tagLabel?: (value: string) => string;
   /** For 'tag_list': a short suffix on each chip, e.g. what it costs to install. */
   tagHint?: (value: string) => string;
   /** For 'tag_list': a line under the list — a budget, a total, a warning. */
   tagSummary?: (values: string[], data: SheetData) => { text: string; warn?: boolean };
   /** For 'tag_list': narrow the choices using the rest of the sheet. */
   tagOptions?: (data: SheetData) => SheetOption[];
+  /** For 'tag_list': also accept a typed entry, with this as the input's placeholder.
+   *  For a list that cannot be complete - languages, where the two a character starts
+   *  with are their city's tongue and their enclave's, both invented per campaign. */
+  allowCustom?: string;
   /** For 'tag_list': the placeholder on the picker. Defaults to '+ ADD…'. */
   addLabel?: string;
   /** Hint that this field is rollable (Phase 2 wires the actual roll). */
@@ -63,8 +108,11 @@ export interface SheetField {
    *  server at read time (never stored in the sheet's JSON).
    *  - token_hp / token_hp_max: the player's rhombus health
    *  - bank_balance: the player's bank balance (read-only on the sheet)
-   *  - token_ac: the token's armor class (writable; see sourceWritable) */
-  source?: 'token_hp' | 'token_hp_max' | 'bank_balance' | 'token_ac';
+   *  - token_ac: the token's melee armor class (writable; see sourceWritable)
+   *  - token_ac_ranged: the token's ranged armor class (writable). Only declared by
+   *    a system whose two ACs are separate numbers; where a template links only
+   *    `token_ac`, that one field still means both columns. */
+  source?: SheetLinkSource;
   /** Writable linked field: renders as a normal input; the server routes the
    *  write to the owning system (e.g. token_ac -> the token's AC). */
   sourceWritable?: boolean;
@@ -85,7 +133,7 @@ export interface SheetField {
  *  row (one-click: rolls the row's damage dice and spends its Effort cost).
  *  'ability_list' is a dynamic add/remove list stored as JSON in a single
  *  field; each item has name, cost, attr (dropdown), die, and effect. */
-export type SectionLayout = 'grid' | 'list' | 'skills' | 'notes' | 'weapons' | 'spells' | 'ability_list' | 'cyberware';
+export type SectionLayout = 'grid' | 'list' | 'skills' | 'notes' | 'weapons' | 'spells' | 'ability_list' | 'cyberware' | 'encumbrance' | 'weapon_stash' | 'inventory';
 
 /** Configuration for the 'ability_list' section layout. */
 export interface AbilityListConfig {
@@ -110,6 +158,10 @@ export interface SheetSection {
    * the section renders every row it declares, which is what weapons and spells do.
    */
   groupSize?: number;
+  /** inventory layout: show the Encumbrance column. Only for a system that has a
+   *  carrying rule - inventing one for a game without it would be worse than not
+   *  counting. */
+  inventoryEnc?: boolean;
   /** grid layout: number of columns (default 4) */
   columns?: number;
   /**
@@ -158,6 +210,12 @@ export interface SheetHeader {
   luckMaxField?: string;
   /** Label shown above the pip row. Defaults to 'LUCK'. */
   luckLabel?: string;
+  /** An experience bar under the HP bar, filling from what this level cost toward what
+   *  the next one does. Display only: levelling is a choice a player makes, so the bar
+   *  says when they are ready and leaves the level field alone.
+   *  Which threshold column it measures against is a house rule, not a field - the whole
+   *  table advances at one rate. */
+  xpBar?: { xpField: string; levelField: string };
 }
 
 /** How this system's defense value appears on tokens. When absent, the

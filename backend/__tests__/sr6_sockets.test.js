@@ -10,13 +10,22 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { makeTestDb, get, run } from './helpers/testDb.js';
+import { drain } from './helpers/until.js';
 
 process.env.JWT_SECRET = 'test-secret';
 process.env.DICE_ANIM_MS = '0';
 
 const socketsFactory = (await import('../sockets/index.js')).default;
 
-const flush = (ms = 25) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Wait for what the handler queued, not for a stopwatch.
+ *
+ * This was a fixed sleep, which is a bet that the database finishes within N milliseconds.
+ * On an idle machine it does; under load it does not, and the assertion then ran against
+ * state that had not arrived. `drain` queues its own queries behind the handler's and
+ * waits for those, so it is exact and usually faster.
+ */
+const flush = () => drain(db);
 const waitFor = async (cond, timeout = 2000) => {
   const start = Date.now();
   while (!cond()) {
@@ -307,5 +316,48 @@ describe('SR6 resistDrain', () => {
     await flush(100);
 
     expect(emitted.find(e => e.event === 'diceRollBroadcast')).toBeFalsy();
+  });
+});
+
+describe('SR6 armor rating writes both token AC columns', () => {
+  /**
+   * The no-bleed test for CWN's split ACs.
+   *
+   * Shadowrun has one Armor Rating and keeps it in the melee_ac slot, and the generic
+   * attack path reads ranged_ac with melee as its fallback. CWN's two ACs are separate
+   * numbers and each of its fields writes only its own column - that difference is
+   * decided by the template, and nothing about it may reach a system with one AC.
+   */
+  it('sets melee and ranged alike from armor_rating', async () => {
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'shadowrun_6e', '{}', 0)`);
+    await run(db, `INSERT INTO locations (name, x, y, z, shape, owner, melee_ac, ranged_ac, hp_current, hp_max) VALUES ('GHOST', 0, 0, 0, 'rhombus', 'GHOST', 0, 0, 11, 11)`);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['updateSheetField']({ fieldId: 'armor_rating', value: 9 });
+    await waitFor(() => emitted.some(e => e.event === 'sheetUpdated'));
+
+    const token = await get(db, `SELECT melee_ac, ranged_ac FROM locations WHERE owner = 'GHOST'`);
+    expect(token.melee_ac).toBe(9);
+    expect(token.ranged_ac).toBe(9);
+    const sheet = await get(db, `SELECT data FROM character_sheets WHERE username = 'GHOST'`);
+    expect(JSON.parse(sheet.data).armor_rating).toBeUndefined(); // linked, never stored
+  });
+
+  it('reads it back off the melee column', async () => {
+    await run(db, `INSERT INTO character_sheets (username, system, data, is_npc) VALUES ('GHOST', 'shadowrun_6e', '{}', 0)`);
+    await run(db, `INSERT INTO locations (name, x, y, z, shape, owner, melee_ac, ranged_ac, hp_current, hp_max) VALUES ('GHOST', 0, 0, 0, 'rhombus', 'GHOST', 9, 9, 11, 11)`);
+    const { handlers, emitted } = boot(db);
+    handlers['identify']('GHOST');
+    await flush(50);
+
+    handlers['requestMySheet']();
+    await waitFor(() => emitted.some(e => e.event === 'sheetData'));
+
+    const sheet = emitted.find(e => e.event === 'sheetData');
+    expect(sheet.data.data.armor_rating).toBe(9);
+    // The ranged link is CWN's; Shadowrun declares none and gets no such field.
+    expect(sheet.data.data.ac_ranged).toBeUndefined();
   });
 });
