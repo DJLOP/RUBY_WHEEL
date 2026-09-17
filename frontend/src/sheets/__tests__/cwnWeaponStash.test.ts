@@ -183,17 +183,28 @@ describe('where it lives', () => {
 });
 
 describe('a stash filled in on paper', () => {
-  // The form prints four numbered rows and the importer gathers them into the array this
-  // module reads. Proving that here rather than only on the server side: the two halves
-  // are in different languages and the shape between them is the contract.
-  it('reads back as a stashed weapon', async () => {
-    const { getImporter } = await import('../../../../backend/sheets/importers.js');
-    const { mapped } = getImporter('cities_without_number').mapFields({
-      Stash1Name: 'Combat Rifle', Stash1Dmg: '1d12', Stash1Skill: 'shoot',
-      Stash1Attr: 'dex_mod', Stash1Trauma: 'd10/x3', Stash1Shock: '3/15',
-      Stash1Enc: '2', Stash1Location: 'the Kestrel',
-    });
-    const rows = readStash({ weapons_stash: mapped.weapons_stash } as never);
+  /**
+   * The form prints four numbered rows and the importer gathers them into the array this
+   * module reads, so the shape between them is a contract in two languages.
+   *
+   * Written as a literal rather than by calling the importer, and that is deliberate: this
+   * suite runs with only the frontend's dependencies installed, and `importers.js` pulls
+   * pdf-lib. Importing it passed locally, where both node_modules exist, and failed in CI
+   * where they do not - see the guard in crossBoundaryImports.test.ts, which now catches
+   * that class of mistake before it leaves the machine.
+   *
+   * So the contract is pinned at both ends instead. The producer - that these boxes gather
+   * into exactly this JSON - is asserted in backend/__tests__/sheet_import_inventory.test.js
+   * under "gathers the stash boxes into the array the sheet keeps". This is the consumer.
+   */
+  const asTheImporterWritesIt = JSON.stringify([{
+    name: 'Combat Rifle', dmg: '1d12', skill: 'shoot', attr: 'dex_mod',
+    trauma: 'd10/x3', shock: '3/15', enc: '2', location: 'the Kestrel',
+    atk: 0, mods: '',
+  }]);
+
+  it('reads back as a stashed weapon', () => {
+    const rows = readStash({ weapons_stash: asTheImporterWritesIt } as never);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       name: 'Combat Rifle', dmg: '1d12', skill: 'shoot',
