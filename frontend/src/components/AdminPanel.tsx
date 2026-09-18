@@ -4,6 +4,7 @@ import { xpAvailable } from './XpWindow';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { isUserDefinedName, getStructLabel } from '../utils/locationHelpers';
+import { storedRotationOf } from '../utils/rotation';
 import { consolidateRoads } from '../utils/roadHelpers';
 import { generateThemedBuildingsForPlot } from './Buildings';
 import { generateCity, SpatialGrid, seededRng, seedFrom, countGeneratedInRegion, type SectionType, type OverpassDensity, type LayoutType, type WaterType, type RoundaboutDensity } from '../cityGen';
@@ -419,7 +420,7 @@ export function AdminPanel({
             const r = Math.min(finalW, finalD);
             finalW = r; finalH = r; finalD = r;
         }
-        const finalData = { ...editData, x: targetObject.position.x, z: targetObject.position.z, y: targetObject.position.y, width: finalW, height: finalH, depth: finalD, rotation: targetObject.rotation.y, rotation_x: targetObject.rotation.x, rotation_z: targetObject.rotation.z };
+        const finalData = { ...editData, x: targetObject.position.x, z: targetObject.position.z, y: targetObject.position.y, width: finalW, height: finalH, depth: finalD, ...storedRotationOf(targetObject) };
         const res = await fetch('/api/locations', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(finalData) });
         if (res.ok) {
             // A grant set while placing a friendly NPC is applied here, once the create
@@ -489,7 +490,7 @@ export function AdminPanel({
             const r = Math.min(finalW, finalD);
             finalW = r; finalH = r; finalD = r;
         }
-        updates.push({ ...editData, x: targetObject.position.x, z: targetObject.position.z, y: targetObject.position.y, width: finalW, height: finalH, depth: finalD, rotation: targetObject.rotation.y, rotation_x: targetObject.rotation.x, rotation_z: targetObject.rotation.z });
+        updates.push({ ...editData, x: targetObject.position.x, z: targetObject.position.z, y: targetObject.position.y, width: finalW, height: finalH, depth: finalD, ...storedRotationOf(targetObject) });
     }
     const finalRoot = updates.find(u => u.id === editId) || updates[0];
     const res = await fetch(`/api/locations/${editId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(finalRoot) });

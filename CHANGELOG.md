@@ -9,6 +9,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.12.1] - 2026-09-17
+
+A structure now saves at the angle you actually turned it to.
+
+### Fixed
+
+- **Rotating a structure on more than one axis saved the wrong angle.** Tilt a building and
+  spin it, save, and it came back facing somewhere you never put it. Measured at just over
+  22 degrees out for a moderate turn.
+
+  Rotations are stored as three numbers, and three numbers only describe an orientation
+  alongside the order they are applied in. Everything that draws a structure reads them in
+  one order; the editor was writing them in another, so the same figures meant a different
+  facing. Saving now goes through the orientation itself rather than the three numbers, so
+  what is written is what will be read.
+
+  **Turning a building on its vertical axis alone was always correct**, which is why this
+  went unnoticed: it is what almost everyone does, and it is the one case where the two
+  orders cannot disagree.
+
+  **Structures you have already placed are left exactly as they are.** They keep their
+  stored numbers and draw precisely as they do today. Rewriting them would have quietly
+  rotated whole cities on a guess about what was originally meant. Re-saving a structure
+  corrects it, so a building that has always looked slightly wrong can be nudged and saved
+  to put it right.
+
+### Changed
+
+- **The test suite now catches a whole class of break before it reaches CI.** A frontend
+  test may borrow a backend module - that is how the rules stay mirrored in both languages -
+  but the frontend installs only its own dependencies, so borrowing one that needs an extra
+  package passes locally and fails the build. That is now checked, naming the file and the
+  package rather than failing somewhere confusing half an hour later.
+
+---
+
 ## [1.12.0] - 2026-09-15
 
 Cities Without Number, finished. Every gap the rulebook audit found is closed: armor that

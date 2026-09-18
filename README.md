@@ -650,7 +650,8 @@ CITY_NET/
 │   │   ├── streamerMode.ts     # IS_SPECTATOR constant — detects ?streamer=true URL param
 │   │   ├── __tests__/
 │   │   │   ├── BattleMapScene.test.tsx  # Which loader a map goes to — the whole of the animated-map change, and previously uncovered since the app smoke test mocks the scene away. A loop must not reach `useLoader`, which suspends with nothing above it to catch that
-│   │   │   └── battleMapMedia.test.ts   # Still or loop, including the trap where the last dot is in the query string rather than the filename
+│   │   │   ├── battleMapMedia.test.ts   # Still or loop, including the trap where the last dot is in the query string rather than the filename
+│   │   │   └── crossBoundaryImports.test.ts # What a frontend test may reach into the backend for. Sixteen do so on purpose - mirroring is only safe if one test walks both copies - but this suite installs only its own dependencies, so a backend module that pulls a package resolves on a developer's machine and fails in CI. Follows each import through its own requires and names the file and the package. Written after exactly that broke a build an hour after the suite was called green
 │   │   ├── assets/body.svg      # The figure the augmentation window draws. A bitmap trace, cleaned: editor metadata stripped, four stray specks removed, `currentColor` so CSS drives the green, and the viewBox re-fitted to the ink — it sat flush right with a 17% empty margin, which put every anchor beside the body rather than on it
 │   │   ├── cyberwareLocations.ts # Install types per system - Cyberpunk RED's nine, Cities Without Number's five from the book's own Type column - and where each lands on the figure. Ids are unique across systems, so a stored row reads back without knowing which game wrote it. Side is a property of a row rather than part of the type, so sorting a list by type does not split somebody's two arms apart. The anchors were measured by hit-testing the drawing rather than guessed — and the figure's centreline is 0.428, not 0.5
 │   │   ├── cwnCyberwarePresets.ts # The sixty implants from the CWN tables as data - install type, concealment, System Strain, price and effect. Modifiers only where the book states them outright; a conditional or off-sheet effect is a note instead, since a wrong number quietly beats no number
@@ -674,6 +675,7 @@ CITY_NET/
 │   │       ├── updateClient.ts     # One implementation of the in-app update flow, shared by the update modal and the nav panel — stale-container probe, server refusal passed through verbatim, restart detected by boot id, bounded wait. Two copies is how one of them stayed unhardened
 │   │       ├── locationHelpers.ts  # Location geometry utilities; exports ZONE_TYPE_NAMES and isUserDefinedName
 │   │       ├── tokenControl.ts     # The client's copy of the movement rule, so the map does not offer a drag the server would refuse. Mirrored from backend/sockets/tokenControl.js — which is authoritative — and cross-checked against it by a test that walks the same rows through both
+│   │       ├── rotation.ts         # The one place that says what the three stored rotation numbers MEAN. Euler angles only exist alongside the order they are applied in, and the readers all build 'YXZ' while the editor's group carried the default 'XYZ' - so a save read one and wrote the other, and a structure came back at an angle nobody chose. Goes through the quaternion, which is the orientation itself with no order to disagree about; reads the source's own order rather than assuming one, since the object is a real Group while editing and a plain stand-in while placing
 │   │       ├── rhombusHelpers.ts   # Player token position math
 │   │       ├── threeHelpers.tsx    # Three.js scene utilities
 │   │       ├── roadHelpers.ts      # consolidateRoads, chainRoadPolylines, buildRoadRibbonGeometry, getClosestPointOnRoads
@@ -682,6 +684,7 @@ CITY_NET/
 │   │       ├── mapExportBounds.ts  # City framing math — rotation-safe circumradius, road width, water, overpasses; tokens excluded; resolution presets and GPU-aware size resolution
 │   │       ├── mapExportWatermark.ts # CITY_NET watermark plus repo URL drawn in 2D canvas space; per-frame composite loop for video; exportFilename from the live map name
 │   │       └── __tests__/
+│   │           ├── rotation.test.ts         # A rotation survives a save, swept across the whole angle range rather than sampled. Keeps the old behaviour beside the fix so the bug stays legible: 22 degrees out on two axes, and exactly right on a plain Y spin, which is why it went unnoticed for so long
 │   │           ├── locationHelpers.test.ts  # Unit tests for isUserDefinedName and getStructLabel
 │   │           ├── roadHelpers.test.ts      # consolidateRoads, chainRoadPolylines, buildRoadRibbonGeometry
 │   │           ├── mapExportBounds.test.ts  # Bounds coverage; GPU clamping on both axes, aspect preserved when scaling down
