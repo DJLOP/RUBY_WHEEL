@@ -1,3 +1,7 @@
+# Agent building
+AGENTS.md
+CLAUDE.md
+
 # Node dependencies
 node_modules/
 npm-debug.log*
