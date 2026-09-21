@@ -46,7 +46,7 @@ backend/uploads/
 # Local asset source folders (not used by the app at runtime)
 Images/
 Computer sounds/
-docs/
+
 
 # Local launcher scripts (machine-specific, not needed in repo)
 *.bat
