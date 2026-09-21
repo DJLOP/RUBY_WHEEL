@@ -23,9 +23,24 @@ Procedurally complete the existing partially authored Imperial City while preser
 
 City completion remains higher priority than new tabletop mechanics, shared-campaign features, or UESRPG expansion.
 
+## Baseline Verification
+
+Inherited CITY_NET baseline verified locally on 2026-09-21.
+
+- Frontend dependencies installed successfully from the lockfile.
+- Frontend: 118 test files passed; 2,686 tests passed.
+- Frontend production build passed.
+- Backend dependencies installed successfully from the lockfile.
+- Backend: 80 test files passed; 2,062 tests passed.
+- Application launched successfully on `localhost:5000`.
+- Backend startup sanity checks passed.
+- Main application UI loaded and was interactable.
+
+Inherited npm audit findings, dependency warnings, React/Three test warnings, and backend test stderr noise are baseline technical debt. They were not remediated during baseline establishment because doing so would alter the inherited baseline before RUBY_WHEEL implementation begins.
+
 ## Immediate Objective
 
-Establish the inherited local execution baseline, then plan the first RUBY_WHEEL-specific capability:
+Plan the first RUBY_WHEEL-specific capability:
 
 > Persistent calibrated world-space reference layers for the existing Imperial City artwork.
 
@@ -40,23 +55,6 @@ That capability must support, at minimum:
 - lock state;
 - persistence across reload/restart;
 - separation from battle maps and procedural geometry.
-
-## Before Planning the Reference-Layer Capability
-
-Verify the inherited application locally:
-
-Frontend:
-- install from lockfile;
-- run tests;
-- run production build.
-
-Backend:
-- install from lockfile;
-- run tests.
-
-Then launch the inherited application once and confirm the current baseline is usable on localhost.
-
-Record any baseline failures before changing code.
 
 ## Current Non-Goals
 
@@ -75,14 +73,13 @@ These are later work unless a prerequisite investigation explicitly requires the
 
 ## Next Planned Repository Step
 
-After the inherited baseline is verified:
-
-1. ensure `main` is clean and current;
-2. create a bounded planning effort for the reference-layer capability;
-3. inspect the minimum relevant frontend/backend/persistence surfaces;
-4. produce an executable plan with explicit non-goals and validation;
-5. commit the approved planning baseline to `main`;
-6. create a dedicated implementation branch;
-7. implement and verify only the approved capability.
+1. Ensure `main` is clean and current.
+2. Create a bounded planning branch for the reference-layer capability.
+3. Inspect the minimum relevant frontend/backend/persistence surfaces.
+4. Produce an executable plan with explicit non-goals and validation.
+5. Review and approve the plan before implementation.
+6. Commit the approved planning baseline to `main`.
+7. Create a dedicated implementation branch.
+8. Implement and verify only the approved capability.
 
 No implementation should begin on `main`.
