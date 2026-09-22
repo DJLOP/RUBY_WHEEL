@@ -73,7 +73,9 @@ Changes accepted into the canonical city become part of the common world.
 
 Existing user-authored city work must be treated as authoritative unless the user explicitly marks it as replaceable.
 
-Procedural systems must never silently overwrite, remove, move, or substantially alter protected authored work.
+Procedural systems must never silently overwrite, remove, move, or substantially alter authored, imported, accepted, protected, or otherwise canonical work unless that content has been explicitly designated replaceable.
+
+Provenance describes where content came from; it does not by itself make content eligible for replacement. Existing pre-RUBY_WHEEL content whose provenance or replacement state is uncertain must default conservatively to non-replaceable until the user explicitly changes that state.
 
 This applies to, at minimum:
 
@@ -111,6 +113,8 @@ Initial support should include common raster formats such as PNG and JPEG.
 The user must be able to align imported city artwork with RUBY_WHEEL world coordinates.
 
 Calibration must be repeatable and persistent.
+
+A persisted reference layer must define a deterministic mapping from source-image coordinates into canonical RUBY_WHEEL X/Z world space. The stored calibration must not depend solely on transient renderer or UI state.
 
 The eventual workflow must allow existing artwork and generated geometry to remain spatially aligned.
 
@@ -216,7 +220,9 @@ City completion is expected to be iterative rather than one-click generation of 
 
 Procedural output must have a lifecycle that distinguishes temporary/generated work from accepted canonical work.
 
-Accepted output must be capable of becoming protected against later regeneration.
+Accepted output becomes canonical and must no longer be eligible for automatic procedural replacement unless the user explicitly marks it replaceable again.
+
+Accepted output must also be capable of becoming protected or locked against accidental manual movement, deletion, or other destructive editing.
 
 # 6. District and Urban Profile Requirements
 
@@ -497,25 +503,47 @@ The system must explicitly distinguish content originating from categories such 
 
 Authorship/provenance must not be inferred from object names.
 
-## R-091 — Protection State Must Be Explicit
+## R-091 — Replacement and Protection State Must Be Explicit
 
-World content must support an explicit protection/lock concept.
+World content that participates in procedural editing must have an explicit replacement state rather than deriving destructibility from provenance, naming, or absence of a lock.
 
-A protected object must not be silently removed by procedural regeneration.
+Automatic procedural replacement is permitted only for content explicitly designated replaceable or disposable.
+
+Imported, manually authored, accepted canonical, protected, and uncertain legacy content must default to non-replaceable unless the user explicitly changes that state.
+
+Protection or lock state is a separate, stronger safeguard intended to prevent accidental manual movement, deletion, or other destructive editing. Non-replaceable content need not be locked, and unlocked content is not therefore automatically replaceable.
 
 ## R-092 — Destructive Operations Must Be Recoverable
 
 Operations that remove or replace generated urban content should support recovery or undo where practical.
 
+## R-093 — Canonical World Mutations Must Be Authorized
+
+Mutations to canonical-world data must require explicit server-side world-editor authorization.
+
+Authentication alone is not sufficient authorization for canonical reference-layer transforms, geography editing, generation or regeneration, replacement/protection changes, destructive snapshot restore/clear operations, or equivalent world-authoring actions.
+
+The initial implementation may treat the primary administrator as the sole world editor; a richer role model is not required for the first city-building slice.
+
 # 13. Snapshot and Backup Requirements
 
 ## R-100 — Canonical World Snapshots Must Round-Trip Correctly
 
-Backup/snapshot mechanisms must preserve all required world-state fields.
+A snapshot is versioned logical world state intended for rollback, restore, or historical capture.
+
+Snapshot mechanisms must preserve all required world-state fields.
 
 Snapshot formats must be versionable so schema evolution does not silently discard newer data.
 
 Existing CITY_NET saved-map behavior may be reused only after its round-trip fidelity is brought in line with RUBY_WHEEL requirements.
+
+## R-101 — Backups Must Be Independently Recoverable
+
+A backup is an independently recoverable copy of canonical persistent data and any required external runtime assets.
+
+A snapshot stored in the same database or storage volume as the live world does not by itself satisfy the backup requirement.
+
+The initial reference-layer capability does not need to implement a complete backup system, but its persistence design must not assume that an in-database snapshot protects the database or referenced assets from storage loss.
 
 # 14. Existing VTT Capability Requirements
 

@@ -31,13 +31,13 @@ Campaigns, sessions, users, and characters reference this world.
 
 They do not own separate copies of it.
 
-## A-002 — Authored Content Outranks Generated Content
+## A-002 — Authored and Canonical Content Outrank Disposable Generated Content
 
-Protected authored content is authoritative.
+Authored, imported, accepted canonical, protected, and uncertain legacy content are non-replaceable by default.
 
-Procedural systems adapt around it.
+Procedural systems adapt around non-replaceable content.
 
-Regeneration may replace disposable generated content but must never silently remove protected authored content.
+Automatic regeneration may replace only content explicitly designated replaceable or disposable.
 
 ## A-003 — Provenance Is Explicit
 
@@ -49,13 +49,21 @@ World content that participates in procedural editing must be capable of carryin
 - authored;
 - generated.
 
+Provenance describes origin. It does not determine whether content may be destroyed or regenerated.
+
 Implementation may add more detailed provenance later.
 
-## A-004 — Protection Is Explicit
+## A-004 — Replacement and Protection Are Explicit and Separate
 
-Objects participating in procedural regeneration must support an explicit protection or lock state.
+Objects participating in procedural regeneration must support an explicit replacement state.
 
-An object survives because its state says it is protected, not because its name happens to be outside a generated vocabulary.
+Automatic procedural replacement is allowed only when content is explicitly marked replaceable or disposable.
+
+Protection or lock state is a separate safeguard against accidental manual movement, deletion, or other destructive editing.
+
+Unlocked content is not therefore automatically replaceable, and non-replaceable content need not be locked.
+
+Existing pre-RUBY_WHEEL content whose replacement state is unknown must default conservatively to non-replaceable.
 
 ## A-005 — Generation Is Local
 
@@ -104,6 +112,14 @@ They may later participate in simulation, but they must first exist as understan
 ## A-012 — Existing CITY_NET Capability Is Reused by Default
 
 Working upstream capability should be extended rather than rebuilt unless an identified limitation justifies replacement.
+
+## A-013 — Canonical World Mutations Require World-Editor Authorization
+
+Mutations to canonical-world data must be authorized explicitly on the server.
+
+Authentication alone is not sufficient authorization for canonical reference-layer transforms, geography editing, generation or regeneration, replacement/protection changes, destructive snapshot restore/clear operations, or equivalent world-authoring actions.
+
+Until a richer role model is deliberately introduced, the primary administrator may act as the sole world editor.
 
 # 3. Technology Baseline
 
@@ -216,15 +232,15 @@ Conceptually, a reference layer requires:
 ReferenceLayer
     identity
     source asset
-    world position
-    scale
-    rotation
+    source-to-world calibration
     opacity
     visibility
     lock state
 ```
 
-Exact schema is intentionally deferred.
+Exact schema and UI are intentionally deferred.
+
+The persisted calibration must define a deterministic mapping from source-image coordinates into canonical RUBY_WHEEL X/Z world space. Renderer-specific position, scale, rotation, pivot, plane dimensions, or texture orientation may be derived from that mapping, but transient renderer/UI state must not be the only source of truth.
 
 Reference layers should:
 
@@ -507,14 +523,19 @@ The architecture should support a lifecycle equivalent to:
 ```text
 GENERATED / DRAFT
         ↓
-ACCEPTED
+ACCEPTED / CANONICAL
         ↓
 PROTECTED / LOCKED
 ```
 
 Exact terminology is not yet fixed.
 
-The important invariant is that procedural content can move from disposable to canonical without relying on renaming tricks.
+The important invariants are:
+
+- generated draft content may be disposable;
+- accepted content becomes canonical and is non-replaceable by default;
+- accepted content may additionally be protected/locked against accidental manual destructive editing;
+- only an explicit user action may make accepted canonical content replaceable again.
 
 Manual modification may automatically or explicitly change protection state depending on final UX design.
 
@@ -670,16 +691,24 @@ Distinct concepts deserve distinct persistence models, particularly:
 
 Schema changes should move toward explicit, ordered migrations rather than an indefinitely growing collection of ad hoc startup alterations.
 
-# 22. Snapshot Architecture
+# 22. Snapshot and Backup Architecture
 
-Existing saved maps should be treated as snapshots/backups rather than campaigns.
+RUBY_WHEEL distinguishes logical snapshots from independent backups.
+
+A **snapshot** is versioned logical world state used for rollback, restore, or historical capture.
 
 RUBY_WHEEL snapshots must eventually:
 
 - carry a format/schema version;
 - preserve all relevant fields;
-- restore generated/authored provenance correctly;
+- restore generated/authored provenance and replacement/protection state correctly;
 - round-trip world data without silent loss.
+
+A **backup** is an independently recoverable copy of canonical persistent data and required external runtime assets.
+
+An in-database or same-volume snapshot does not by itself constitute a backup against storage loss or corruption.
+
+Existing CITY_NET saved maps should be treated as legacy snapshot behavior, not authoritative canonical backup, until their known round-trip limitations are repaired.
 
 Campaigns must never be implemented by loading different snapshots into the same world.
 
@@ -701,13 +730,21 @@ Refactoring should be incremental and driven by concrete feature seams.
 
 # 24. Authorization Architecture
 
-Future campaign secrets and restricted files require server-side authorization.
+RUBY_WHEEL has two distinct authorization concerns:
+
+1. canonical-world authoring;
+2. future restricted campaign/knowledge data.
+
+Canonical-world mutations require explicit server-side world-editor authorization as defined by A-013. Existing generic `authenticate` behavior is not, by itself, an adequate authorization boundary for privileged world-authoring routes.
+
+Future campaign secrets and restricted files also require server-side authorization.
 
 A frontend-hidden button is not an authorization boundary.
 
 The architecture must eventually distinguish:
 
 - authentication;
+- world-editor authority;
 - global role;
 - campaign membership;
 - resource visibility.
