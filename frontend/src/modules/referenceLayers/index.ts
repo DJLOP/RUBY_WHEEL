@@ -5,6 +5,18 @@
 // derives everything it draws from it; it never becomes the source of truth itself.
 
 export { ReferenceLayers } from './ReferenceLayers';
+export { ReferenceLayerManager } from './ReferenceLayerManager';
+export {
+  withPreview,
+  draftFromLayer,
+  previewFromDraft,
+  changedFields,
+  validateSourceFile,
+  toDegrees,
+  toRadians,
+  ACCEPTED_SOURCE_TYPES,
+} from './preview';
+export type { ReferenceLayerPreview, ReferenceLayerDraft } from './preview';
 export {
   sourceToWorld,
   worldToSource,

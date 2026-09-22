@@ -181,7 +181,7 @@ export function AdminPanel({
   onRoadEraseModeChange,
   genExcludeRoads, setGenExcludeRoads, setRhombusState, setActiveSidebarMenu,
   editorGenParts, setEditorGenParts, editorGenType, setEditorGenType, editorStyleIndex, setEditorStyleIndex,
-  isCopyingSize, setIsCopyingSize, isAdmin, isPrimaryAdmin, setShowBattleMapManager,
+  isCopyingSize, setIsCopyingSize, isAdmin, isPrimaryAdmin, setShowBattleMapManager, onOpenReferenceLayers,
   isPlantingTrees, setIsPlantingTrees, treeBatchSize, setTreeBatchSize, userName,
     isDeployingEnemy, setIsDeployingEnemy, isDeployingFriendly, setIsDeployingFriendly, handleSaveDefault, handleLoadDefault,
     tempCityMapScale, setTempCityMapScale, globalSettings, fetchGlobalSettings, tempBattleMapScale, setTempBattleMapScale, activeBattleMapData, setIsAdminPayOpen, setIsAdminXpOpen,
@@ -893,6 +893,15 @@ export function AdminPanel({
               <button className="utility-btn" style={{flex: 1}} onClick={() => { setSelectedLocation(null); setRoadTrail([]); setView('draw_roads'); }}>+ DRAW_ROADS</button>
               <button className="utility-btn" style={{flex: 1}} onClick={() => { setSelectedLocation(null); setWaterTrail([]); setView('draw_water'); }}>+ DRAW_WATER</button>
           </div>
+          {/* Canonical-world editing, so it is offered to the primary administrator only.
+              The backend enforces the same boundary — this is which button is drawn, not
+              who is allowed to change the city. */}
+          {isPrimaryAdmin && (
+            <button className="utility-btn" style={{marginTop: '10px', width: '100%'}}
+              onClick={() => { setSelectedLocation(null); onOpenReferenceLayers && onOpenReferenceLayers(); }}>
+              + REFERENCE_LAYERS
+            </button>
+          )}
           <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
               <button className="utility-btn" style={{flex: 1}} onClick={() => { setSelectedLocation(null); setDistrictSelection([]); setEditingDistrict(null); setAssigningDistrict(null); setView('district'); }}>+ MNG_DISTRICT</button>
               <button className="utility-btn" style={{flex: 1}} onClick={() => { setSelectedLocation(null); setJoinSelection([]); setView('join'); }}>+ CUSTOM_STRUCT</button>

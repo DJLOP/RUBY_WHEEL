@@ -68,7 +68,7 @@ import { DistrictInteractions, WaterBody, WaterBodies, Roads, GhostTraffic, Road
 import { Overpasses, OverpassPreview } from './components/Overpasses';
 import { Sidewalks } from './components/Sidewalks';
 import { Signs, AutoSignage, useSignEditing, type SignData } from './modules/signs';
-import { ReferenceLayers } from './modules/referenceLayers';
+import { ReferenceLayers, ReferenceLayerManager, withPreview, type ReferenceLayerPreview } from './modules/referenceLayers';
 import { type RemoteFont } from './utils/fontLoader';
 import type { LayoutType, WaterType, RoundaboutDensity } from './cityGen';
 import { GlobalCameraCapture, CursorPivotControls, CameraController, KeyboardPan } from './components/Camera';
@@ -103,6 +103,13 @@ function App() {
   });
   const controlsRef = useRef<any>(null);
   const { locations, setLocations, districts, setDistricts, roads, setRoads, waterBodies, setWaterBodies, overpasses, signs, referenceLayers, fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchReferenceLayers, fetchAll } = useMapData();
+  const [showReferenceLayerManager, setShowReferenceLayerManager] = useState(false);
+  /** Unsaved reference-layer calibration, shown in this client's scene only. */
+  const [referenceLayerPreview, setReferenceLayerPreview] = useState<ReferenceLayerPreview | null>(null);
+  const previewedReferenceLayers = useMemo(
+    () => withPreview(referenceLayers, referenceLayerPreview),
+    [referenceLayers, referenceLayerPreview]
+  );
   const [editingDistrict, setEditingDistrict] = useState<District | null>(null);
   // Picking buildings is its own mode now, not a side effect of having a district open.
   // The old flow put you into selection the moment you hit EDIT, so it was never clear
@@ -1530,6 +1537,15 @@ function App() {
       {isLoggedIn && (
         <>
           {!IS_SPECTATOR && <div className="ui-overlay">
+      {showReferenceLayerManager && isAdmin && isPrimaryAdmin && (
+        <ReferenceLayerManager
+          token={token}
+          layers={referenceLayers}
+          refreshLayers={fetchReferenceLayers}
+          onPreviewChange={setReferenceLayerPreview}
+          onClose={() => { setReferenceLayerPreview(null); setShowReferenceLayerManager(false); }}
+        />
+      )}
       {showBattleMapManager && (selectedLocation || activeEditLocation || editId) && (
         <BattleMapManager locationId={selectedLocation ? selectedLocation.id : (activeEditLocation ? activeEditLocation.id : (editId as number))} token={token} onClose={() => setShowBattleMapManager(false)} onMapsChanged={fetchCurrentLocBattleMaps} />
       )}
@@ -1757,6 +1773,7 @@ function App() {
                 setIsAdminXpOpen={setIsAdminXpOpen}
                 isPrimaryAdmin={isPrimaryAdmin}
                 setShowBattleMapManager={setShowBattleMapManager}
+                onOpenReferenceLayers={() => setShowReferenceLayerManager(true)}
                 isPlantingTrees={isPlantingTrees} setIsPlantingTrees={setIsPlantingTrees}
                   treeBatchSize={treeBatchSize} setTreeBatchSize={setTreeBatchSize}
                   isDeployingEnemy={isDeployingEnemy} setIsDeployingEnemy={setIsDeployingEnemy}
@@ -2765,7 +2782,7 @@ function App() {
             {/* Canonical world only: the battle-map branch above never sees these. They sit
                 under the grid lines, water and roads, because they are what the city is
                 drawn over. */}
-            <ReferenceLayers layers={referenceLayers} />
+            <ReferenceLayers layers={previewedReferenceLayers} />
             <Grid name="city-grid" raycast={() => null} infiniteGrid fadeDistance={750} fadeStrength={1.5} cellSize={1} cellThickness={0.7} sectionSize={10} sectionThickness={1.2} sectionColor={THEMES[currentTheme].gridSection} cellColor={THEMES[currentTheme].gridCell} />
             {token !== '' && (
               <group name="city-ref-lines" position={[0, 0.01, 0]}>
