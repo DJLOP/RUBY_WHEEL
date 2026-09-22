@@ -75,6 +75,8 @@ One inherited unrelated Socket.IO timing test (`sockets.deathsave.test.js`) fail
 
 ## Post-Reference-Layer Design Direction
 
+These decisions are now recorded authoritatively as R-006, R-007, R-025 in `docs/REQUIREMENTS.md` and A-015–A-017 in `docs/ARCHITECTURE.md` (amendment human-accepted and awaiting commit); those documents govern if this summary differs.
+
 The next generation-facing work must preserve the following decisions before procedural generation begins:
 
 - **Preserve canon, not pixels.**
@@ -101,24 +103,19 @@ The next generation-facing work must preserve the following decisions before pro
 
 ## Known Physical Scale
 
-The source artwork has a known drawing scale:
+The physical-scale contract is settled and recorded as R-005 / A-014:
 
-> **1 source pixel = 3 meters**
+- **1 world unit = 5 feet = 1.524 meters**;
+- **1 source pixel = 3 meters**, so the source-scale reference calibration is `250/127 ≈ 1.968503937` world units per pixel;
+- canonical exterior-wall span: **6,744 m** east–west and north–south (`2,248 px × 3 m/px`), approximately **4,425.20 world units**.
 
-This is authoritative source-map metadata.
-
-The canonical relationship between RUBY_WHEEL world units and physical distance is **not yet settled**. The inherited CITY_NET UI exposes `GLOBAL MAP SCALE (FT/UNIT)` and currently shows `5`, but that must be inspected before treating it as the canonical world-coordinate contract.
-
-Do not silently equate one world unit with one meter or otherwise derive generation dimensions from the raster until the world-unit contract is explicitly resolved.
+A UI measurement/display setting (such as the inherited `GLOBAL MAP SCALE (FT/UNIT)` control) must not silently redefine the physical size of canonical geometry. No UI change has been made for this.
 
 ## Immediate Objective
 
-Before the next implementation slice:
+The requirements/architecture amendment recording the post-reference-layer invariants, the physical-scale contract, and the raster-evidence boundary is human-accepted and awaiting commit to `main`.
 
-1. Amend `docs/REQUIREMENTS.md` and `docs/ARCHITECTURE.md` to capture the post-reference-layer generation invariants above.
-2. Establish the canonical world-unit ↔ physical-distance contract from repository evidence and an explicit design decision.
-3. Define the boundary between raw raster evidence and normalized canonical constraints.
-4. Then plan the next bounded implementation slice for **canonical macro geography and hard-anchor establishment/import**, rather than jumping directly to whole-city procedural generation.
+After that commit, plan the next bounded implementation slice for **normalized canonical macro geography and hard-anchor establishment/import**, rather than full-raster vectorization, computer-vision reconstruction, direct generation from raw pixels, or whole-city procedural generation.
 
 ## Current Non-Goals
 
@@ -137,13 +134,10 @@ Do not yet implement:
 
 ## Next Planned Repository Step
 
-1. Start from clean current `main`.
-2. Update the authoritative requirements/architecture with the accepted post-reference-layer generation decisions.
-3. Verify the inherited world-scale semantics and record the canonical physical-distance decision.
-4. Review those documentation changes for contradictions only; do not reopen settled reference-layer architecture.
-5. Plan the next bounded capability around normalized canonical macro geography and hard anchors.
-6. Commit the approved planning/documentation baseline before implementation.
-7. Create a dedicated implementation branch for that next capability.
+1. Commit the accepted documentation amendment to `main`.
+2. Plan the next bounded capability around normalized canonical macro geography and hard anchors.
+3. Commit the approved plan before implementation.
+4. Create a dedicated implementation branch for that next capability.
 
 Implementation must not begin on `main`.
 

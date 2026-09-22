@@ -89,6 +89,8 @@ This applies to, at minimum:
 - protected development;
 - manually edited generated content.
 
+This protection applies to canonical world content: geometry and records that have been authored, imported, or accepted into the world model. The literal pixels of reference artwork are not themselves canonical geometry under this requirement (see R-006). Canonical intent expressed in reference artwork is protected by normalizing it and explicitly accepting it as canonical geometry, not by treating the raster as geometry.
+
 ## R-003 — Existing City Artwork Must Be Importable as a Reference
 
 The system must support importing the current Imperial City artwork as a persistent reference layer.
@@ -104,7 +106,7 @@ At minimum, an imported reference layer must support:
 - lock state;
 - persistence across restart/reload.
 
-The reference layer must be usable as a tracing and alignment aid without becoming procedural geometry itself.
+The reference layer must be usable as a tracing and alignment aid without becoming procedural geometry itself (see R-006).
 
 Initial support should include common raster formats such as PNG and JPEG.
 
@@ -117,6 +119,56 @@ Calibration must be repeatable and persistent.
 A persisted reference layer must define a deterministic mapping from source-image coordinates into canonical RUBY_WHEEL X/Z world space. The stored calibration must not depend solely on transient renderer or UI state.
 
 The eventual workflow must allow existing artwork and generated geometry to remain spatially aligned.
+
+## R-005 — Physical Scale Is Canonical
+
+RUBY_WHEEL world coordinates have a fixed physical scale:
+
+> **1 world unit = 5 feet = 1.524 meters.**
+
+The Imperial City source artwork has a fixed drawing scale:
+
+> **1 source pixel = 3 meters.**
+
+The reference calibration corresponding to the source artwork's physical scale is therefore `3 / 1.524 = 250/127 ≈ 1.968503937` world units per source pixel.
+
+The canonical exterior-wall span of the Imperial City is **6,744 meters east–west and 6,744 meters north–south**, derived from `2,248 source pixels × 3 meters/pixel` and corresponding to approximately **4,425.20 world units** in each direction.
+
+The physical scale and canonical city dimensions are product truth. A UI measurement or display setting must not silently redefine the physical size of canonical geometry.
+
+## R-006 — Preserve Canon, Not Pixels
+
+Reference artwork is calibrated reference evidence, not authoritative fine geometry.
+
+Raw raster pixels must not be consumed directly by procedural generation as canonical spatial geometry.
+
+Hand-drawn or scanned artifacts must not silently become canonical geometry, including:
+
+- thick or dirty coastline strokes;
+- irregular stroke width;
+- imperfect circles or wall alignment;
+- anti-aliasing and scan artifacts;
+- GIMP cleanup colors;
+- symbolic road/bridge colors;
+- yellow dock/quay marks;
+- pink gatehouse shapes;
+- other drawing conventions.
+
+Canonical spatial geometry must instead be normalized and explicitly accepted.
+
+The raster may provide evidence for the intended existence, approximate location, connectivity, role, or extent of a feature without making its literal pixels canonical.
+
+## R-007 — Canon Is Classified by Anchor Strength
+
+The system must distinguish:
+
+- **hard anchors** — location and/or geometry is established canon and must be preserved closely;
+- **soft anchors** — the feature must exist in an appropriate place and role, but its exact footprint and form remain free;
+- **ordinary urban fabric** — streets, buildings, lots, alleys, and similar fabric that may be regenerated unless intentionally promoted into canon.
+
+Ordinary buildings and streets drawn in the raster are not canonical solely because they appear in the source image.
+
+This classification does not override authored/accepted-content protection: ordinary fabric that has been authored, imported, or accepted into the canonical world remains non-replaceable unless explicitly designated replaceable.
 
 # 4. Persistent Geography Requirements
 
@@ -223,6 +275,25 @@ Procedural output must have a lifecycle that distinguishes temporary/generated w
 Accepted output becomes canonical and must no longer be eligible for automatic procedural replacement unless the user explicitly marks it replaceable again.
 
 Accepted output must also be capable of becoming protected or locked against accidental manual movement, deletion, or other destructive editing.
+
+## R-025 — Generation Is Hierarchical
+
+City completion follows a conceptual hierarchy:
+
+```text
+City strategy
+  → District program
+  → Island-group / island-chain allocation
+  → Island morphology
+  → Local block / quarter refinement
+  → POI promotion / detailed authoring
+```
+
+Higher levels allocate roles, constraints, obligations, budgets, relationships, ranges, weights, and priorities. Lower levels produce geometry and detail.
+
+Lower-level feasibility must be able to feed back upward rather than forcing geometrically impossible allocations.
+
+This hierarchy is an architectural direction. It does not require all levels to be implemented at once.
 
 # 6. District and Urban Profile Requirements
 
@@ -465,7 +536,7 @@ Promotion may eventually attach:
 
 RUBY_WHEEL must be designed for the actual Imperial City rather than a small demonstration neighborhood.
 
-The target world is approximately city-scale over many kilometers and may visually contain tens of thousands or more structures.
+The target world is approximately city-scale over many kilometers (see R-005 for the canonical exterior-wall span) and may visually contain tens of thousands or more structures.
 
 ## R-081 — Scale Must Be Measured Before Foundational Persistence Decisions
 
@@ -650,7 +721,7 @@ The target city-building workflow is:
 1. Import existing Imperial City artwork.
 2. Calibrate it to world space.
 3. Lock it as a reference layer.
-4. Trace or import canonical geography.
+4. Trace or import canonical geography, normalizing it and explicitly accepting it rather than adopting raster pixels as geometry (R-006).
 5. Define persistent districts and subregions.
 6. Mark protected authored work.
 7. Assign generation profiles.
@@ -669,3 +740,11 @@ The first implementation capability after the documentation baseline should esta
 > **RUBY_WHEEL can import, display, calibrate, persist, toggle, and lock the user's existing Imperial City artwork as a world-space reference layer without changing existing CITY_NET procedural-generation behavior.**
 
 Procedural Imperial City generation begins only after canonical authored material can be reliably placed in the application's world space.
+
+## Next Capability Direction
+
+The first capability is complete. The next implementation-facing capability is expected to concern:
+
+> **normalized canonical macro geography and hard-anchor establishment/import.**
+
+It must not become full-raster vectorization, computer-vision reconstruction of every street or building, direct procedural generation from raw pixels, or whole-city generation in one step.

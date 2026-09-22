@@ -121,6 +121,57 @@ Authentication alone is not sufficient authorization for canonical reference-lay
 
 Until a richer role model is deliberately introduced, the primary administrator may act as the sole world editor.
 
+## A-014 — Physical Scale Is Fixed
+
+One RUBY_WHEEL world unit is 5 feet (1.524 meters). This is the canonical world-coordinate contract.
+
+The Imperial City source artwork scale is 1 source pixel = 3 meters, so the reference calibration corresponding to source physical scale is `250/127 ≈ 1.968503937` world units per pixel.
+
+The canonical exterior-wall span is 6,744 meters east–west and north–south (`2,248 px × 3 m/px`), approximately 4,425.20 world units in each direction.
+
+UI measurement or display settings, including inherited scale controls, may change how distances are presented but must not silently redefine the physical size of canonical geometry.
+
+## A-015 — Preserve Canon, Not Pixels
+
+Raster reference layers are calibrated evidence, not authoritative fine geometry.
+
+Procedural generation must not consume raw raster pixels as canonical spatial geometry. Hand-drawn, scanned, and editing artifacts and drawing conventions (stroke width, dirty or thick outlines, imperfect circles or wall alignment, anti-aliasing, cleanup colors, symbolic feature colors and marks) must not silently become canonical geometry.
+
+Canonical spatial geometry is normalized and explicitly accepted before generators consume it. The raster may inform a feature's intended existence, approximate location, connectivity, role, or extent without its literal pixels becoming canonical.
+
+A-002 protection applies to that canonical geometry once accepted; it does not convert reference pixels into protected geometry.
+
+## A-016 — Canon Has Anchor Classes
+
+Canonical constraints distinguish:
+
+- **hard anchors** — location and/or geometry is established canon and must be preserved closely;
+- **soft anchors** — the feature must exist in an appropriate place and role, but exact footprint and form remain free;
+- **ordinary urban fabric** — streets, buildings, lots, alleys, and similar fabric that may be regenerated unless intentionally promoted into canon.
+
+Appearance in the source raster does not by itself make ordinary buildings or streets canonical.
+
+This classification does not override authored/accepted-content protection: ordinary fabric that has been authored, imported, or accepted into the canonical world remains non-replaceable unless explicitly designated replaceable.
+
+## A-017 — Generation Is Hierarchical
+
+Generation is conceptually layered:
+
+```text
+City strategy
+  → District program
+  → Island-group / island-chain allocation
+  → Island morphology
+  → Local block / quarter refinement
+  → POI promotion / detailed authoring
+```
+
+Higher levels allocate roles, constraints, obligations, budgets, relationships, ranges, weights, and priorities. Lower levels produce geometry and detail.
+
+Lower-level feasibility must be able to feed back upward rather than forcing geometrically impossible allocations.
+
+This is an architectural direction, not a mandate to implement all levels at once or to build a single framework spanning them.
+
 # 3. Technology Baseline
 
 RUBY_WHEEL inherits CITY_NET's existing technology stack and should preserve it by default.
@@ -248,7 +299,7 @@ Reference layers should:
 - survive reload/restart;
 - be visually adjustable;
 - be lockable against accidental movement;
-- not participate in collision or procedural generation unless explicitly promoted into world geometry;
+- not participate in collision or procedural generation; reference content reaches world geometry only as normalized, explicitly accepted canonical geometry (A-015), never as raw pixels;
 - remain conceptually separate from battle maps.
 
 The initial system should support the user's existing Imperial City raster artwork.
@@ -276,6 +327,8 @@ This separation permits:
 - independent editing;
 - more than one reference layer;
 - gradual tracing/import rather than all-or-nothing conversion.
+
+Geometry established from reference artwork is normalized and explicitly accepted (A-015) and classified by anchor strength (A-016). It is expressed in the canonical physical scale (A-014).
 
 # 8. District and Subregion Architecture
 
@@ -345,6 +398,8 @@ Generated Urban Fabric
 ```
 
 Core layout algorithms should not need to know what "Market District" or "Nobles District" means.
+
+This pipeline corresponds to the lower, geometry-producing levels of the A-017 hierarchy; higher levels supply its roles, constraints, and budgets.
 
 # 10. Generation Profile Architecture
 
@@ -870,6 +925,8 @@ The first capability is:
 This isolates the first fork-specific feature from the generator and establishes the coordinate framework required for all later city-building work.
 
 Only after authored source material can coexist reliably with CITY_NET world coordinates should the project move into persistent geography and Imperial generation profiles.
+
+That first capability is complete. The next implementation-facing capability is expected to concern normalized canonical macro geography and hard-anchor establishment/import. It must not become full-raster vectorization, computer-vision reconstruction of every street or building, direct procedural generation from raw pixels, or whole-city generation in one step.
 
 # 31. Known Open Decisions
 
