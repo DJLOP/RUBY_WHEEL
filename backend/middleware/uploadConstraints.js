@@ -32,6 +32,11 @@ const MB = 1024 * 1024;
  */
 const LIMITS = {
   battle_map: 250 * MB,
+  // A reference layer is one raster of a real city drawing — the Imperial City artwork is
+  // 6032 x 4584 — and it streams to disk and is inspected there, never buffered. It shares
+  // the battle-map ceiling for the same reason: the cost is storage, and refusing the one
+  // image this feature exists to display would make the feature decorative.
+  reference_layer: 250 * MB,
   music: 25 * MB,
   portrait: 8 * MB,
   font: 5 * MB,

@@ -16,6 +16,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "image-size": "^2.0.4",
     "jsonwebtoken": "^9.0.3",
     "mapsystem": "file:..",
     "multer": "^2.2.0",
