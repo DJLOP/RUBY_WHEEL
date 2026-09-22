@@ -21,6 +21,7 @@ interface UseSocketOptions {
   onFetchWaterBodies: () => void;
   onFetchOverpasses?: () => void;
   onFetchSigns?: () => void;
+  onFetchReferenceLayers?: () => void;
   onFetchBattleMaps?: () => void;
   onViewSettingsUpdate?: (settings: { renderSignage: boolean; signageDensity: number; renderSidewalks: boolean }) => void;
   onBankUpdate: (balance: number, debt: number, firstPayDone?: boolean, highRollerDone?: boolean) => void;
@@ -58,7 +59,7 @@ interface UseSocketOptions {
 
 export function useSocket({
   userName, token, playerToken, isLoggedIn, isSpectator, notificationsEnabled, isChatOpen,
-  onFetchAll, onFetchGlobalSettings, onFetchLocations, onFetchRoads, onFetchDistricts, onFetchWaterBodies, onFetchOverpasses, onFetchSigns, onFetchBattleMaps, onViewSettingsUpdate,
+  onFetchAll, onFetchGlobalSettings, onFetchLocations, onFetchRoads, onFetchDistricts, onFetchWaterBodies, onFetchOverpasses, onFetchSigns, onFetchReferenceLayers, onFetchBattleMaps, onViewSettingsUpdate,
   onBankUpdate, onBalancePaid, onNotification, onHasUnreadChat, onTokenUpdate, onIsAdminUpdate,
   onRegistrationPending, onRegistrationUpdated,
   onPasswordResetRequested, onPasswordResetResolved,
@@ -124,6 +125,12 @@ export function useSocket({
       if (!payload?.isRhombusOnly) {
         (window as any).hasUnsavedChanges = true;
         onFetchBattleMaps?.();
+        // Inside the rhombus guard, unlike the collections above it. A rhombus-only
+        // update is a token or a sheet moving, which happens constantly and can never
+        // change a reference layer — the reference-layer routes always emit without that
+        // flag. Refetching the list on every step somebody takes would cost a request per
+        // move for a collection that changes when an admin presses Apply.
+        onFetchReferenceLayers?.();
       }
     });
 

@@ -804,6 +804,7 @@ function App() {
     onFetchRoads: fetchRoads,
     onFetchOverpasses: fetchOverpasses,
     onFetchSigns: fetchSigns,
+    onFetchReferenceLayers: fetchReferenceLayers,
     onFetchDistricts: fetchDistricts,
     onFetchWaterBodies: fetchWaterBodies,
     onFetchBattleMaps: fetchCurrentLocBattleMaps,
