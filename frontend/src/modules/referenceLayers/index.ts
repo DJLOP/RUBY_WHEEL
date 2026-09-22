@@ -6,6 +6,8 @@
 
 export { ReferenceLayers } from './ReferenceLayers';
 export { ReferenceLayerManager } from './ReferenceLayerManager';
+export { ReferenceLayerFraming } from './ReferenceLayerFraming';
+export type { ReferenceFrameRequest } from './ReferenceLayerFraming';
 export {
   withPreview,
   draftFromLayer,
@@ -25,6 +27,9 @@ export {
   threeRotationY,
   referencePlaneProps,
   referenceMaterialProps,
+  framingDistance,
+  topDownFraming,
+  FRAME_MARGIN,
   REFERENCE_LAYER_Y,
   REFERENCE_LAYER_Y_STEP,
   NO_RAYCAST,

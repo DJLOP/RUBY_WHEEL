@@ -21,6 +21,9 @@ import {
   worldBounds,
   threeRotationY,
   referencePlaneProps,
+  topDownFraming,
+  framingDistance,
+  FRAME_MARGIN,
   REFERENCE_LAYER_Y,
   REFERENCE_LAYER_Y_STEP,
   type Calibration,
@@ -250,5 +253,163 @@ describe('referencePlaneProps', () => {
 
   it('hits nothing when raycast', () => {
     expect(referencePlaneProps(layer()).raycast()).toBeNull();
+  });
+});
+
+describe('topDownFraming', () => {
+  // The artwork this feature exists for, at the scale human verification was using:
+  // 6032 x 4584 source at 2 world units per pixel is a 12064 x 9168 plane.
+  const imperial = (over: Partial<ReferenceLayer> = {}): ReferenceLayer => ({
+    id: 1,
+    name: 'Imperial City',
+    asset_id: 1,
+    asset_url: '/uploads/reference_layers/abc.png',
+    original_name: 'city.png',
+    format: 'png',
+    source_width_px: 6032,
+    source_height_px: 4584,
+    world_center_x: 0,
+    world_center_z: 0,
+    world_units_per_pixel: 2,
+    rotation_rad: 0,
+    opacity: 1,
+    is_visible: true,
+    is_locked: false,
+    provenance: 'imported',
+    replacement_state: 'non_replaceable',
+    ...over,
+  });
+
+  const FOV = 50;
+  const WIDE = 16 / 9;
+
+  /** Half-extents of what a perspective camera sees at a given distance. */
+  const visibleHalfExtents = (distance: number, fov: number, aspect: number) => {
+    const halfHeight = distance * Math.tan((fov * Math.PI) / 180 / 2);
+    return { halfHeight, halfWidth: halfHeight * aspect };
+  };
+
+  /** The four corners of the plane in world X/Z, through the persisted calibration. */
+  const corners = (layer: ReferenceLayer) => [
+    { u: 0, v: 0 },
+    { u: layer.source_width_px, v: 0 },
+    { u: layer.source_width_px, v: layer.source_height_px },
+    { u: 0, v: layer.source_height_px },
+  ].map(p => sourceToWorld(layer, p));
+
+  it('sits directly above the persisted centre', () => {
+    const layer = imperial({ world_center_x: -412.5, world_center_z: 963 });
+    const { position, target } = topDownFraming(layer, FOV, WIDE);
+
+    expect(position[0]).toBe(-412.5);
+    expect(position[2]).toBe(963);
+    expect(target[0]).toBe(-412.5);
+    expect(target[2]).toBe(963);
+  });
+
+  it('looks straight down: only the height differs between eye and target', () => {
+    const { position, target } = topDownFraming(imperial(), FOV, WIDE);
+    expect(position[0]).toBe(target[0]);
+    expect(position[2]).toBe(target[2]);
+    expect(position[1]).toBeGreaterThan(target[1]);
+  });
+
+  it('targets the plane itself rather than the ground grid', () => {
+    expect(topDownFraming(imperial(), FOV, WIDE).target[1]).toBe(REFERENCE_LAYER_Y);
+  });
+
+  it('gets far enough above the 12064 x 9168 target to contain every corner', () => {
+    const layer = imperial();
+    const { position } = topDownFraming(layer, FOV, WIDE);
+    const { halfWidth, halfHeight } = visibleHalfExtents(position[1] - REFERENCE_LAYER_Y, FOV, WIDE);
+    const shortest = Math.min(halfWidth, halfHeight);
+
+    for (const corner of corners(layer)) {
+      const distance = Math.hypot(corner.x - layer.world_center_x, corner.z - layer.world_center_z);
+      expect(distance).toBeLessThan(shortest);
+    }
+  });
+
+  it('contains every corner on a tall viewport too, where the width is the binding axis', () => {
+    const layer = imperial();
+    const tall = 9 / 16;
+    const { position } = topDownFraming(layer, FOV, tall);
+    const { halfWidth, halfHeight } = visibleHalfExtents(position[1] - REFERENCE_LAYER_Y, FOV, tall);
+    const shortest = Math.min(halfWidth, halfHeight);
+
+    for (const corner of corners(layer)) {
+      expect(Math.hypot(corner.x, corner.z)).toBeLessThan(shortest);
+    }
+  });
+
+  // A rectangle turned 37 degrees is inscribed in the same circle as one turned none, so
+  // the framing must not care — and must not depend on how the camera's up vector happens
+  // to resolve when it is pointed straight down a parallel axis.
+  it('frames a rotated layer identically to an unrotated one', () => {
+    const flat = topDownFraming(imperial({ rotation_rad: 0 }), FOV, WIDE);
+    for (const rotation_rad of [0.3, Math.PI / 4, Math.PI / 2, 2.4, -1.1]) {
+      expect(topDownFraming(imperial({ rotation_rad }), FOV, WIDE)).toEqual(flat);
+    }
+  });
+
+  it('still contains every corner of a rotated layer', () => {
+    const layer = imperial({ rotation_rad: Math.PI / 4, world_center_x: 200, world_center_z: -50 });
+    const { position } = topDownFraming(layer, FOV, WIDE);
+    const { halfWidth, halfHeight } = visibleHalfExtents(position[1] - REFERENCE_LAYER_Y, FOV, WIDE);
+    const shortest = Math.min(halfWidth, halfHeight);
+
+    for (const corner of corners(layer)) {
+      const distance = Math.hypot(corner.x - layer.world_center_x, corner.z - layer.world_center_z);
+      expect(distance).toBeLessThan(shortest);
+    }
+  });
+
+  it('pulls back further for a larger scale, in proportion', () => {
+    const near = topDownFraming(imperial({ world_units_per_pixel: 1 }), FOV, WIDE);
+    const far = topDownFraming(imperial({ world_units_per_pixel: 2 }), FOV, WIDE);
+    expect(far.position[1] - REFERENCE_LAYER_Y).toBeCloseTo((near.position[1] - REFERENCE_LAYER_Y) * 2, 6);
+  });
+
+  it('leaves a margin rather than fitting the layer flush to the edge', () => {
+    const layer = imperial();
+    const radius = Math.hypot(12064, 9168) / 2;
+    const flush = framingDistance(radius, FOV, WIDE) / FRAME_MARGIN;
+    expect(FRAME_MARGIN).toBeGreaterThan(1);
+    expect(topDownFraming(layer, FOV, WIDE).position[1] - REFERENCE_LAYER_Y).toBeGreaterThan(flush);
+  });
+
+  // Framing is a camera action. A person who frames a locked layer to check it must get
+  // back exactly the numbers they had.
+  it('reads the layer without altering it', () => {
+    const layer = imperial({ world_center_x: -412.5, world_center_z: 963, rotation_rad: 0.91 });
+    const before = JSON.stringify(layer);
+    topDownFraming(layer, FOV, WIDE);
+    expect(JSON.stringify(layer)).toBe(before);
+  });
+});
+
+describe('framingDistance', () => {
+  it('needs more distance for a bigger radius', () => {
+    expect(framingDistance(200, 50, 1.6)).toBeGreaterThan(framingDistance(100, 50, 1.6));
+  });
+
+  it('needs more distance for a narrower field of view', () => {
+    expect(framingDistance(100, 30, 1.6)).toBeGreaterThan(framingDistance(100, 60, 1.6));
+  });
+
+  it('backs off further as the viewport narrows, and not as it widens past square', () => {
+    const square = framingDistance(100, 50, 1);
+    expect(framingDistance(100, 50, 0.5)).toBeGreaterThan(square);
+    expect(framingDistance(100, 50, 2)).toBe(square);
+  });
+
+  it('returns zero rather than infinity for a degenerate camera or empty layer', () => {
+    expect(framingDistance(0, 50, 1.6)).toBe(0);
+    expect(framingDistance(100, 0, 1.6)).toBe(0);
+  });
+
+  it('treats a missing aspect as square instead of producing NaN', () => {
+    expect(framingDistance(100, 50, Number.NaN)).toBe(framingDistance(100, 50, 1));
+    expect(framingDistance(100, 50, 0)).toBe(framingDistance(100, 50, 1));
   });
 });

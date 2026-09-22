@@ -2,6 +2,92 @@ import React, { useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 
+// ─── depth range ─────────────────────────────────────────────────────────────
+
+/**
+ * The inherited clipping planes, and the precision contract built on them.
+ *
+ * The canonical-world camera is `<PerspectiveCamera makeDefault position={[0, 200, 250]} />`
+ * with no `near` or `far`, so it takes Three's constructor defaults: near 0.1, far 2000.
+ * That was sized for CITY_NET, where a scene is blocks of buildings a few tens of units
+ * across, and it is correct for that. It is not correct for a reference drawing of the
+ * Imperial City, which at the calibration being used for tracing is over 12000 units
+ * across and has to be viewed from roughly 17500 units up to be seen whole — nearly nine
+ * times past the far plane, so every fragment is clipped and the canvas goes black.
+ *
+ * The fix is a contract rather than a bigger number. Simply raising `far` to something
+ * enormous would buy the wide view and pay for it at close range: depth precision in a
+ * perspective camera is governed by the ratio far/near, and pushing that ratio from the
+ * inherited 20000 to millions puts z-fighting into exactly the close-up building editing
+ * this project spends most of its time doing.
+ *
+ * So the depth range follows the camera's working distance:
+ *
+ *   far  = max(FAR_MIN, distance * FAR_DISTANCE_MULTIPLE)
+ *   near = max(NEAR_MIN, far / MAX_DEPTH_RATIO)
+ *
+ * Three properties make this safe:
+ *
+ *   - Below distance 500 both expressions sit on their floors, so everything CITY_NET
+ *     already does — the default camera sits about 320 units from its target — renders
+ *     with byte-identical planes to before. No inherited behaviour changes.
+ *   - The two branches meet exactly at distance 500, so there is no jump in either plane
+ *     as the camera dollies through it.
+ *   - far/near never exceeds the ratio the inherited pair already had, so depth precision
+ *     is never worse than what CITY_NET ships with today.
+ *
+ * Because `far` grows with distance, dollying out can no longer cross it. That is why
+ * there is no arbitrary `maxDistance` clamp on the controls: the boundary that used to be
+ * crossable has been removed rather than fenced off.
+ */
+export const NEAR_MIN = 0.1;
+export const FAR_MIN = 2000;
+/** How far past its target the camera can still see. Enough headroom for a low horizon. */
+export const FAR_DISTANCE_MULTIPLE = 4;
+/** The inherited far/near ratio. Treated as a ceiling, never exceeded. */
+export const MAX_DEPTH_RATIO = FAR_MIN / NEAR_MIN;
+
+/** The clipping planes for a camera working at `distance` from what it is looking at. */
+export function clippingPlanesForDistance(distance: number): { near: number; far: number } {
+  const safe = Number.isFinite(distance) && distance > 0 ? distance : 0;
+  const far = Math.max(FAR_MIN, safe * FAR_DISTANCE_MULTIPLE);
+  const near = Math.max(NEAR_MIN, far / MAX_DEPTH_RATIO);
+  return { near, far };
+}
+
+/**
+ * Keep the depth range matched to how far away the camera is working.
+ *
+ * Mounted in the canonical-world branch only; the battle-map scene has its own camera and
+ * its own fixed range. It writes to the camera directly rather than through React state,
+ * because this runs every frame and a re-render per frame would be its own bug.
+ */
+export function AdaptiveClipping() {
+  const { camera } = useThree();
+
+  useFrame(({ controls }) => {
+    const perspective = camera as THREE.PerspectiveCamera;
+    if (!perspective.isPerspectiveCamera) return;
+
+    const distance = (controls as unknown as { distance?: number } | null)?.distance;
+    const working = typeof distance === 'number' && Number.isFinite(distance)
+      ? distance
+      // No controls yet: how far the camera is from the world origin is the best available
+      // stand-in, and it is only used until they mount.
+      : camera.position.length();
+
+    const { near, far } = clippingPlanesForDistance(working);
+    // Rebuilding the projection matrix is not free, so only when it would actually differ.
+    if (perspective.near !== near || perspective.far !== far) {
+      perspective.near = near;
+      perspective.far = far;
+      perspective.updateProjectionMatrix();
+    }
+  });
+
+  return null;
+}
+
 const PAN_SPEED = 1.6;
 const FORWARD_SPEED = 2.0;
 

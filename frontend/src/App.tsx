@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, CameraControls, PerspectiveCamera, Grid, TransformControls, Bvh, Html, OrthographicCamera } from '@react-three/drei';
+import { OrbitControls, CameraControls, PerspectiveCamera, TransformControls, Bvh, Html, OrthographicCamera } from '@react-three/drei';
 import { BattleMapManager } from './BattleMapManager';
 import { BattleMapScene } from './BattleMapScene';
 import { HealthBar } from './HealthBar';
@@ -68,10 +68,11 @@ import { DistrictInteractions, WaterBody, WaterBodies, Roads, GhostTraffic, Road
 import { Overpasses, OverpassPreview } from './components/Overpasses';
 import { Sidewalks } from './components/Sidewalks';
 import { Signs, AutoSignage, useSignEditing, type SignData } from './modules/signs';
-import { ReferenceLayers, ReferenceLayerManager, withPreview, type ReferenceLayerPreview } from './modules/referenceLayers';
+import { ReferenceLayers, ReferenceLayerManager, ReferenceLayerFraming, withPreview, type ReferenceLayerPreview, type ReferenceFrameRequest } from './modules/referenceLayers';
 import { type RemoteFont } from './utils/fontLoader';
 import type { LayoutType, WaterType, RoundaboutDensity } from './cityGen';
-import { GlobalCameraCapture, CursorPivotControls, CameraController, KeyboardPan } from './components/Camera';
+import { GlobalCameraCapture, CursorPivotControls, CameraController, KeyboardPan, AdaptiveClipping } from './components/Camera';
+import { WorldGrid, CloseRangeOnly } from './components/WorldGrid';
 import { AdminPanel } from './components/AdminPanel';
 import MapExportController, { type MapExportApi } from './components/MapExportController';
 import type { MapExportOptions } from './hooks/useMapExport';
@@ -104,6 +105,8 @@ function App() {
   const controlsRef = useRef<any>(null);
   const { locations, setLocations, districts, setDistricts, roads, setRoads, waterBodies, setWaterBodies, overpasses, signs, referenceLayers, fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchReferenceLayers, fetchAll } = useMapData();
   const [showReferenceLayerManager, setShowReferenceLayerManager] = useState(false);
+  /** A pending request to look straight down at one layer. The nonce makes it repeatable. */
+  const [referenceFrameRequest, setReferenceFrameRequest] = useState<ReferenceFrameRequest | null>(null);
   /** Unsaved reference-layer calibration, shown in this client's scene only. */
   const [referenceLayerPreview, setReferenceLayerPreview] = useState<ReferenceLayerPreview | null>(null);
   const previewedReferenceLayers = useMemo(
@@ -1544,6 +1547,7 @@ function App() {
           layers={referenceLayers}
           refreshLayers={fetchReferenceLayers}
           onPreviewChange={setReferenceLayerPreview}
+          onFrameLayer={(layer) => setReferenceFrameRequest(prev => ({ layer, nonce: (prev?.nonce ?? 0) + 1 }))}
           onClose={() => { setReferenceLayerPreview(null); setShowReferenceLayerManager(false); }}
         />
       )}
@@ -2765,6 +2769,9 @@ function App() {
             ) : (
               <>
                 <PerspectiveCamera makeDefault position={[0, 200, 250]} />
+            {/* The camera ships with Three's default near 0.1 / far 2000, which cannot
+                contain a city-scale reference view. See components/Camera.tsx. */}
+            <AdaptiveClipping />
             <CameraControls ref={controlsRef} makeDefault enabled={!isDragging && !measureMode && !IS_SPECTATOR} dollyToCursor={true} mouseButtons={{ left: 2, right: 1, middle: 16, wheel: 16 }} />
             {IS_SPECTATOR && <SpectatorCameraRig socket={socketRef.current} controlsRef={controlsRef} directorState={directorState} />}
             {!IS_SPECTATOR && token !== '' && <AdminCameraBroadcaster socket={socketRef.current} controlsRef={controlsRef} enabled={directorState.cameraMode === 'mirror' && spectatorCount > 0} />}
@@ -2784,8 +2791,9 @@ function App() {
                 under the grid lines, water and roads, because they are what the city is
                 drawn over. */}
             <ReferenceLayers layers={previewedReferenceLayers} />
-            <Grid name="city-grid" raycast={() => null} infiniteGrid fadeDistance={750} fadeStrength={1.5} cellSize={1} cellThickness={0.7} sectionSize={10} sectionThickness={1.2} sectionColor={THEMES[currentTheme].gridSection} cellColor={THEMES[currentTheme].gridCell} />
+            <WorldGrid name="city-grid" raycast={() => null} infiniteGrid fadeDistance={750} fadeStrength={1.5} cellSize={1} cellThickness={0.7} sectionSize={10} sectionThickness={1.2} sectionColor={THEMES[currentTheme].gridSection} cellColor={THEMES[currentTheme].gridCell} />
             {token !== '' && (
+              <CloseRangeOnly>
               <group name="city-ref-lines" position={[0, 0.01, 0]}>
                 {/* Center Lines (Blue) */}
                 <mesh position={[0, 0, 0]} raycast={() => null}>
@@ -2807,7 +2815,9 @@ function App() {
                   <meshBasicMaterial color="#ffffff" transparent opacity={0.4} />
                 </mesh>
               </group>
+              </CloseRangeOnly>
             )}
+            <ReferenceLayerFraming request={referenceFrameRequest} />
             <CameraController target={cameraTarget} onComplete={() => { setCameraTarget(null); setShowZoomComplete(true); setTimeout(() => setShowZoomComplete(false), 3000); }} />
             {(!IS_SPECTATOR || directorState.visibility.showRoads) && (
               <>

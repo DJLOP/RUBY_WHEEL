@@ -49,6 +49,7 @@ const ASSET = {
 let fetchMock: ReturnType<typeof vi.fn>;
 let onPreviewChange: ReturnType<typeof vi.fn>;
 let refreshLayers: ReturnType<typeof vi.fn>;
+let onFrameLayer: ReturnType<typeof vi.fn>;
 let onClose: ReturnType<typeof vi.fn>;
 
 const ok = (body: unknown = {}) => Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
@@ -58,6 +59,7 @@ const failure = (status: number, error: string) =>
 beforeEach(() => {
   onPreviewChange = vi.fn();
   refreshLayers = vi.fn();
+  onFrameLayer = vi.fn();
   onClose = vi.fn();
   fetchMock = vi.fn((url: string) => (String(url).endsWith('/assets') ? ok([ASSET]) : ok({})));
   vi.stubGlobal('fetch', fetchMock);
@@ -71,6 +73,7 @@ const show = (layers: ReferenceLayer[]) => render(
     layers={layers}
     refreshLayers={refreshLayers}
     onPreviewChange={onPreviewChange}
+    onFrameLayer={onFrameLayer}
     onClose={onClose}
   />
 );
@@ -449,5 +452,115 @@ describe('operational wording', () => {
   it('does not describe saved maps as a backup of reference imagery', () => {
     show([layer()]);
     expect(screen.getByText(/Saved maps are not\s+a backup of them/i)).toBeInTheDocument();
+  });
+});
+
+describe('staying clear of the icon rail', () => {
+  /**
+   * The panel used to be an ordinary child of `.ui-overlay`, laid out at the left viewport
+   * edge — directly under the icon rail, which carries `z-index: 500` in that same stacking
+   * context while a plain `.panel` is `z-index: auto`. The rail covered the labels and the
+   * left edge of every input.
+   */
+  const frame = () => document.querySelector('.reference-layer-manager') as HTMLElement;
+
+  it('is taken out of the overlay flow so it cannot be pushed under the rail', () => {
+    show([layer()]);
+    expect(frame().style.position).toBe('fixed');
+  });
+
+  it('starts to the right of the rail, offset by the width variable the rail uses', () => {
+    show([layer()]);
+    // The variable the rail is sized from, so this tracks it as it scales with viewport
+    // height rather than re-encoding 45-60px here.
+    expect(frame().style.left).toMatch(/var\(--rail-width/);
+    expect(frame().style.left).toMatch(/calc\(/);
+  });
+
+  it('paints above the rail rather than under it, and below the modal layer', () => {
+    show([layer()]);
+    const z = Number(frame().style.zIndex);
+    // `.sidebar` is 500; `.modal-overlay` is 1000 and must still land on top of this.
+    expect(z).toBeGreaterThan(500);
+    expect(z).toBeLessThan(1000);
+  });
+
+  it('is bounded by the viewport so a long form scrolls instead of overflowing it', () => {
+    show([layer()]);
+    expect(frame().style.maxHeight).toMatch(/100vh/);
+    expect(frame().style.overflowY).toBe('auto');
+    expect(frame().style.maxWidth).toMatch(/100vw/);
+  });
+
+  it('stays interactive inside the pointer-events-none overlay', () => {
+    show([layer()]);
+    expect(frame().style.pointerEvents).toBe('auto');
+  });
+});
+
+describe('framing the selected layer', () => {
+  it('offers no framing action until a layer is selected', () => {
+    show([layer()]);
+    expect(screen.queryByRole('button', { name: /FRAME_LAYER/ })).toBeNull();
+  });
+
+  it('asks the scene to frame the selected layer', async () => {
+    const user = userEvent.setup();
+    const target = layer({ world_center_x: -412.5, world_center_z: 963 });
+    show([target]);
+    await openLayer(user);
+
+    await user.click(screen.getByRole('button', { name: /FRAME_LAYER/ }));
+    expect(onFrameLayer).toHaveBeenCalledTimes(1);
+    expect(onFrameLayer).toHaveBeenCalledWith(target);
+  });
+
+  // It moves the camera and writes nothing, so refusing it on a locked layer would mean
+  // being unable to look at the one layer you most want to check.
+  it('frames a locked layer too', async () => {
+    const user = userEvent.setup();
+    show([layer({ is_locked: true })]);
+    await openLayer(user);
+
+    const button = screen.getByRole('button', { name: /FRAME_LAYER/ });
+    expect(button).not.toBeDisabled();
+    await user.click(button);
+    expect(onFrameLayer).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends nothing to the server and leaves the draft alone', async () => {
+    const user = userEvent.setup();
+    show([layer()]);
+    await openLayer(user);
+
+    const x = screen.getByLabelText('WORLD_CENTER_X');
+    await user.clear(x);
+    await user.type(x, '250');
+    const previewsBefore = onPreviewChange.mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: /FRAME_LAYER/ }));
+
+    expect(writes()).toHaveLength(0);
+    expect(refreshLayers).not.toHaveBeenCalled();
+    expect(onPreviewChange.mock.calls.length).toBe(previewsBefore);
+    expect((screen.getByLabelText('WORLD_CENTER_X') as HTMLInputElement).value).toBe('250');
+  });
+
+  it('can be asked repeatedly', async () => {
+    const user = userEvent.setup();
+    show([layer()]);
+    await openLayer(user);
+
+    const button = screen.getByRole('button', { name: /FRAME_LAYER/ });
+    await user.click(button);
+    await user.click(button);
+    expect(onFrameLayer).toHaveBeenCalledTimes(2);
+  });
+
+  it('says plainly that it only moves the camera', async () => {
+    const user = userEvent.setup();
+    show([layer()]);
+    await openLayer(user);
+    expect(screen.getByText(/Moves the camera only/i)).toBeInTheDocument();
   });
 });

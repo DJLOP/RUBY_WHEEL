@@ -32,6 +32,11 @@ interface Props {
   refreshLayers: () => void;
   /** Local-only preview for this client's scene. Null clears it. */
   onPreviewChange: (preview: ReferenceLayerPreview | null) => void;
+  /**
+   * Ask the scene to look straight down at this layer. Read-only: it moves the camera and
+   * never the calibration, so it is safe on a locked layer and changes nothing to undo.
+   */
+  onFrameLayer?: (layer: ReferenceLayer) => void;
   onClose: () => void;
 }
 
@@ -52,7 +57,39 @@ const fieldStyle: React.CSSProperties = {
 };
 const labelStyle: React.CSSProperties = { fontSize: '0.6rem', opacity: 0.75, display: 'block', marginTop: '6px' };
 
-export function ReferenceLayerManager({ token, layers, refreshLayers, onPreviewChange, onClose }: Props) {
+/**
+ * Where the panel sits, and why it is taken out of the overlay's flow.
+ *
+ * As an ordinary child of `.ui-overlay` this panel was laid out at the left viewport edge,
+ * directly under the icon rail — and the rail wins, because it carries `z-index: 500`
+ * inside that same stacking context while a plain `.panel` is `z-index: auto`. The first
+ * column of the form was covered, which is where the labels and the left edge of every
+ * input are.
+ *
+ * `fixed` rather than a flex child: the overlay is a `space-between` column, so a panel in
+ * its flow also pushes its siblings around. Offset by the rail's own `--rail-width`, which
+ * is the variable the rail is sized from, so this stays correct as the rail scales with
+ * viewport height instead of re-encoding 45-60px here.
+ *
+ * Left-anchored rather than centred, unlike the battle-map manager: calibration means
+ * nudging a number and watching the world change, so the middle of the viewport is the one
+ * place this must not cover.
+ */
+const managerFrameStyle: React.CSSProperties = {
+  position: 'fixed',
+  top: '12px',
+  left: 'calc(var(--rail-width, 60px) + 12px)',
+  width: '320px',
+  maxWidth: 'calc(100vw - var(--rail-width, 60px) - 24px)',
+  maxHeight: 'calc(100vh - 24px)',
+  overflowY: 'auto',
+  // Above the rail's 500 so it is no longer covered, and below `.modal-overlay`'s 1000 so
+  // a confirmation or an error still lands on top of it rather than behind it.
+  zIndex: 900,
+  pointerEvents: 'auto',
+};
+
+export function ReferenceLayerManager({ token, layers, refreshLayers, onPreviewChange, onFrameLayer, onClose }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draft, setDraft] = useState<ReferenceLayerDraft | null>(null);
   const [assets, setAssets] = useState<ReferenceAsset[]>([]);
@@ -242,7 +279,7 @@ export function ReferenceLayerManager({ token, layers, refreshLayers, onPreviewC
   const locked = !!selected?.is_locked;
 
   return (
-    <div className="panel reference-layer-manager" style={{ width: '320px', maxHeight: '90vh', overflowY: 'auto', pointerEvents: 'auto' }}>
+    <div className="panel reference-layer-manager" style={managerFrameStyle}>
       <button className="close-btn" onClick={onClose} aria-label="Close">X</button>
       <h3 style={{ margin: '0 0 10px 0', textShadow: 'var(--glow)' }}>REFERENCE_LAYERS</h3>
 
@@ -315,6 +352,17 @@ export function ReferenceLayerManager({ token, layers, refreshLayers, onPreviewC
               onChange={e => updateDraft({ is_visible: e.target.checked })} />
             VISIBLE
           </label>
+
+          {/* Not disabled while locked, and not disabled while busy: moving the camera
+              writes nothing, and being unable to look at a layer you cannot edit is
+              exactly backwards. */}
+          <button className="utility-btn" style={{ width: '100%', marginTop: '10px' }}
+            onClick={() => onFrameLayer?.(selected)}>
+            FRAME_LAYER (TOP_VIEW)
+          </button>
+          <p style={{ fontSize: '0.55rem', opacity: 0.55, margin: '4px 0 0 0' }}>
+            Looks straight down at the saved centre. Moves the camera only.
+          </p>
 
           <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
             <button className="upload-btn" style={{ flex: 1 }} disabled={busy} onClick={apply}>APPLY</button>

@@ -156,3 +156,62 @@ export function referencePlaneProps(layer: ReferenceLayer, index = 0) {
     raycast: NO_RAYCAST,
   };
 }
+
+// ─── top-down framing ────────────────────────────────────────────────────────
+
+/**
+ * How much room to leave around a framed layer. Enough to see its edges against the
+ * world grid, which is the whole reason for looking at it from above.
+ */
+export const FRAME_MARGIN = 1.08;
+
+/**
+ * The distance a perspective camera needs to fit a circle of `radius` on screen.
+ *
+ * Both axes are checked and the larger wins. Fitting the vertical extent alone crops the
+ * sides of a wide viewport, and fitting the horizontal alone crops the top and bottom of a
+ * tall one — either way the person is calibrating against an edge they cannot see.
+ */
+export function framingDistance(radius: number, fovDegrees: number, aspect: number): number {
+  const halfFov = (fovDegrees * Math.PI) / 180 / 2;
+  const tan = Math.tan(halfFov);
+  if (!(tan > 0) || !(radius > 0)) return 0;
+
+  const safeAspect = aspect > 0 && Number.isFinite(aspect) ? aspect : 1;
+  const forHeight = radius / tan;
+  const forWidth = radius / (tan * safeAspect);
+  return Math.max(forHeight, forWidth) * FRAME_MARGIN;
+}
+
+/**
+ * Where to put the camera to look straight down at one layer, and what to look at.
+ *
+ * The inherited free camera can sit at any angle, and at a shallow one a correctly placed
+ * 12000-unit raster is a bright line across the horizon — persisted perfectly and
+ * impossible to calibrate against. This is the deterministic way back: directly above the
+ * centre, looking down, whatever the camera was doing before.
+ *
+ * The framed radius is half the diagonal of the plane rather than half its width or
+ * height, which makes it the circle the rectangle is inscribed in. That is rotation
+ * invariant — a layer turned 37 degrees is framed exactly like one turned none — so this
+ * cannot depend on which way the camera's up vector happens to resolve when it is pointed
+ * straight down a parallel axis.
+ *
+ * Read-only. It derives from `source_width_px`, `source_height_px`, the persisted centre
+ * and the persisted scale, and writes nothing back: framing a layer must never be a way to
+ * alter the calibration somebody is trying to check.
+ */
+export function topDownFraming(
+  layer: ReferenceLayer,
+  fovDegrees: number,
+  aspect: number,
+): { position: [number, number, number]; target: [number, number, number] } {
+  const { width, height } = planeDimensions(layer);
+  const radius = Math.hypot(width, height) / 2;
+  const distance = framingDistance(radius, fovDegrees, aspect);
+
+  return {
+    position: [layer.world_center_x, REFERENCE_LAYER_Y + distance, layer.world_center_z],
+    target: [layer.world_center_x, REFERENCE_LAYER_Y, layer.world_center_z],
+  };
+}
