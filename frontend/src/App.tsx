@@ -68,6 +68,7 @@ import { DistrictInteractions, WaterBody, WaterBodies, Roads, GhostTraffic, Road
 import { Overpasses, OverpassPreview } from './components/Overpasses';
 import { Sidewalks } from './components/Sidewalks';
 import { Signs, AutoSignage, useSignEditing, type SignData } from './modules/signs';
+import { ReferenceLayers } from './modules/referenceLayers';
 import { type RemoteFont } from './utils/fontLoader';
 import type { LayoutType, WaterType, RoundaboutDensity } from './cityGen';
 import { GlobalCameraCapture, CursorPivotControls, CameraController, KeyboardPan } from './components/Camera';
@@ -101,7 +102,7 @@ function App() {
     return 'classic';
   });
   const controlsRef = useRef<any>(null);
-  const { locations, setLocations, districts, setDistricts, roads, setRoads, waterBodies, setWaterBodies, overpasses, signs, fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchAll } = useMapData();
+  const { locations, setLocations, districts, setDistricts, roads, setRoads, waterBodies, setWaterBodies, overpasses, signs, referenceLayers, fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchReferenceLayers, fetchAll } = useMapData();
   const [editingDistrict, setEditingDistrict] = useState<District | null>(null);
   // Picking buildings is its own mode now, not a side effect of having a district open.
   // The old flow put you into selection the moment you hit EDIT, so it was never clear
@@ -2761,6 +2762,10 @@ function App() {
                     <meshBasicMaterial visible={false} />
                 </mesh>
             )}
+            {/* Canonical world only: the battle-map branch above never sees these. They sit
+                under the grid lines, water and roads, because they are what the city is
+                drawn over. */}
+            <ReferenceLayers layers={referenceLayers} />
             <Grid name="city-grid" raycast={() => null} infiniteGrid fadeDistance={750} fadeStrength={1.5} cellSize={1} cellThickness={0.7} sectionSize={10} sectionThickness={1.2} sectionColor={THEMES[currentTheme].gridSection} cellColor={THEMES[currentTheme].gridCell} />
             {token !== '' && (
               <group name="city-ref-lines" position={[0, 0.01, 0]}>

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { Location, District, Road, WaterBody } from '../types';
 import type { SignData } from '../modules/signs';
+import type { ReferenceLayer } from '../modules/referenceLayers';
 
 export function useMapData() {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -9,6 +10,7 @@ export function useMapData() {
   const [waterBodies, setWaterBodies] = useState<WaterBody[]>([]);
   const [overpasses, setOverpasses] = useState<any[]>([]);
   const [signs, setSigns] = useState<SignData[]>([]);
+  const [referenceLayers, setReferenceLayers] = useState<ReferenceLayer[]>([]);
 
   const fetchLocations = useCallback(() => {
     fetch(`/api/locations?_t=${Date.now()}`)
@@ -52,6 +54,13 @@ export function useMapData() {
       .catch(err => console.error('Error fetching signs:', err));
   }, []);
 
+  const fetchReferenceLayers = useCallback(() => {
+    fetch(`/api/reference-layers?_t=${Date.now()}`)
+      .then(res => res.json())
+      .then(data => setReferenceLayers(data))
+      .catch(err => console.error('Error fetching reference layers:', err));
+  }, []);
+
   const fetchAll = useCallback(() => {
     fetchLocations();
     fetchDistricts();
@@ -59,7 +68,8 @@ export function useMapData() {
     fetchWaterBodies();
     fetchOverpasses();
     fetchSigns();
-  }, [fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns]);
+    fetchReferenceLayers();
+  }, [fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchReferenceLayers]);
 
   return {
     locations, setLocations,
@@ -68,6 +78,8 @@ export function useMapData() {
     waterBodies, setWaterBodies,
     overpasses, setOverpasses,
     signs, setSigns,
-    fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchAll,
+    referenceLayers, setReferenceLayers,
+    fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns,
+    fetchReferenceLayers, fetchAll,
   };
 }
