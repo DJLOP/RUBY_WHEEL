@@ -472,4 +472,15 @@ db.serialize(() => {
   });
 });
 
+// RUBY_WHEEL schema arrives through an ordered, recorded migration list rather than
+// joining the block above. `ready` is how callers find out it finished: `server.js` waits
+// for it before listening, so no request can ever reach a route whose tables are still
+// being created. The exported object is still the same sqlite3 database — this adds a
+// property, it does not wrap it — so every inherited caller is unaffected.
+const { runMigrations } = require('./migrations');
+db.ready = runMigrations(db).then((applied) => {
+  if (applied.length) console.log(`[db] applied migrations: ${applied.join(', ')}`);
+  return db;
+});
+
 module.exports = db;

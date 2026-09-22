@@ -1,4 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
+const { runMigrations } = require('../../migrations');
 
 /**
  * Creates an in-memory SQLite DB with the schema needed for custom-structure tests.
@@ -213,7 +214,10 @@ function makeTestDb() {
 
       db.run(`CREATE TABLE sqlite_sequence (name TEXT, seq INTEGER)`, () => {
         // ignore error — it may already exist
-        resolve(db);
+        // RUBY_WHEEL tables are not restated here: they come from the same ordered
+        // migration list the real database runs, so a test schema cannot drift from the
+        // shipped one by someone updating a migration and forgetting this file.
+        runMigrations(db).then(() => resolve(db), reject);
       });
     });
   });

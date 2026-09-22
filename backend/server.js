@@ -71,10 +71,19 @@ app.use((req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
 // Sockets
 require('./sockets')(io, db, { elevatedUsers, ...helpers });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  if (process.env.ADMIN_PASS === 'cyberpunk_password' || !process.env.ADMIN_PASS) {
-    console.warn('\x1b[33m⚠️  WARNING: Default admin password in use. Set ADMIN_PASS in your .env file.\x1b[0m');
-  }
-  require('./startup/sanity_checks')();
+// Nothing is served until the migration ledger is up to date. A route answering a request
+// against a table that is still being created fails in ways that look like data loss
+// rather than like a startup race, and the window is exactly when a restarted server is
+// busiest. Failing to migrate is fatal: carrying on would serve a schema nobody knows.
+db.ready.then(() => {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+    if (process.env.ADMIN_PASS === 'cyberpunk_password' || !process.env.ADMIN_PASS) {
+      console.warn('\x1b[33m⚠️  WARNING: Default admin password in use. Set ADMIN_PASS in your .env file.\x1b[0m');
+    }
+    require('./startup/sanity_checks')();
+  });
+}).catch((err) => {
+  console.error('[db] migrations failed, refusing to start:', err && err.message);
+  process.exit(1);
 });
