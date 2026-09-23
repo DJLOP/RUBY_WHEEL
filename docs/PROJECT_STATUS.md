@@ -2,8 +2,8 @@
 
 **Status date:** 2026-09-22  
 **Current branch baseline:** `main`  
-**Current accepted baseline commit:** `1097e70` — Fix reference layer acceptance issues  
-**Requirements/architecture baseline commit:** `e19a6c5` — Clarify preservation authorization calibration and recovery contracts  
+**Current accepted baseline commit:** `2b446c2` — Add Imperial City generation bible  
+**Requirements/architecture baseline commit:** `8f02ed4` — Define generation hierarchy and canonical city scale  
 **Reference-layer plan baseline commit:** `eb47959` — Plan persistent calibrated reference layers  
 **Upstream baseline:** `4fb2ecfb0b90c056d8f1f386aeb28e213f087405`  
 **Baseline tag:** `city-net-baseline-4fb2ecf`
@@ -15,6 +15,7 @@
 - The working project requirements are in `docs/REQUIREMENTS.md`.
 - The architecture contract is in `docs/ARCHITECTURE.md`.
 - The inherited CITY_NET audit is recorded in `docs/UPSTREAM_AUDIT.md`.
+- The GM-accepted human-readable world specification and initial must-exist hard-anchor set are in `docs/IMPERIAL_CITY_GENERATION_BIBLE.md` (committed `2b446c2`).
 - `AGENTS.md` is the canonical model-agnostic agent operating guide.
 - `CLAUDE.md` is only a thin bootstrap pointing Claude to `AGENTS.md`.
 - The first RUBY_WHEEL-specific implementation slice — persistent calibrated reference layers — is complete, human-accepted, merged to `main`, and pushed.
@@ -75,7 +76,7 @@ One inherited unrelated Socket.IO timing test (`sockets.deathsave.test.js`) fail
 
 ## Post-Reference-Layer Design Direction
 
-These decisions are now recorded authoritatively as R-006, R-007, R-025 in `docs/REQUIREMENTS.md` and A-015–A-017 in `docs/ARCHITECTURE.md` (amendment human-accepted and awaiting commit); those documents govern if this summary differs.
+These decisions are now recorded authoritatively as R-006, R-007, R-025 in `docs/REQUIREMENTS.md` and A-015–A-017 in `docs/ARCHITECTURE.md` (committed `8f02ed4`); those documents govern if this summary differs.
 
 The next generation-facing work must preserve the following decisions before procedural generation begins:
 
@@ -113,9 +114,9 @@ A UI measurement/display setting (such as the inherited `GLOBAL MAP SCALE (FT/UN
 
 ## Immediate Objective
 
-The requirements/architecture amendment recording the post-reference-layer invariants, the physical-scale contract, and the raster-evidence boundary is human-accepted and awaiting commit to `main`.
+The requirements/architecture amendment (`8f02ed4`) and the Imperial City generation bible (`2b446c2`) are committed to `main`.
 
-After that commit, plan the next bounded implementation slice for **normalized canonical macro geography and hard-anchor establishment/import**, rather than full-raster vectorization, computer-vision reconstruction, direct generation from raw pixels, or whole-city procedural generation.
+The active next capability is **normalized canonical macro geography and hard-anchor establishment/import**. Its plan, `docs/CANONICAL_GEOGRAPHY_PLAN.md`, is **proposed and uncommitted**, awaiting human approval. It is not full-raster vectorization, computer-vision reconstruction, direct generation from raw pixels, or whole-city procedural generation.
 
 ## Current Non-Goals
 
@@ -134,10 +135,9 @@ Do not yet implement:
 
 ## Next Planned Repository Step
 
-1. Commit the accepted documentation amendment to `main`.
-2. Plan the next bounded capability around normalized canonical macro geography and hard anchors.
-3. Commit the approved plan before implementation.
-4. Create a dedicated implementation branch for that next capability.
+1. Human review and approval of `docs/CANONICAL_GEOGRAPHY_PLAN.md`.
+2. Commit the approved plan to `main` before implementation.
+3. Create a dedicated implementation branch for that capability.
 
 Implementation must not begin on `main`.
 
