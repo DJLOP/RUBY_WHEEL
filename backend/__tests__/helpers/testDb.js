@@ -4,8 +4,12 @@ const { runMigrations } = require('../../migrations');
 /**
  * Creates an in-memory SQLite DB with the schema needed for custom-structure tests.
  * Returns a promise that resolves with the db instance once all tables are ready.
+ *
+ * `migrations` defaults to the full shipped list. Passing a prefix of it gives a database
+ * as it stood before a later feature, so that feature's migration can be tested bringing
+ * a populated database forward.
  */
-function makeTestDb() {
+function makeTestDb({ migrations } = {}) {
   return new Promise((resolve, reject) => {
     const db = new sqlite3.Database(':memory:', (err) => {
       if (err) return reject(err);
@@ -217,7 +221,7 @@ function makeTestDb() {
         // RUBY_WHEEL tables are not restated here: they come from the same ordered
         // migration list the real database runs, so a test schema cannot drift from the
         // shipped one by someone updating a migration and forgetting this file.
-        runMigrations(db).then(() => resolve(db), reject);
+        runMigrations(db, migrations).then(() => resolve(db), reject);
       });
     });
   });

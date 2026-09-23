@@ -14,6 +14,7 @@
 /** The migrations, in the order they must be applied. Append; never reorder or edit. */
 const MIGRATIONS = [
   require('./001-reference-layers'),
+  require('./002-canonical-geography'),
 ];
 
 /** Promisified `db.run` bound to one connection, so a migration reads as a script. */

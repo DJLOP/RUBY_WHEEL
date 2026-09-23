@@ -22,7 +22,8 @@ describe('ordered migrations on an empty database', () => {
 
   it('creates the ledger and both reference tables', async () => {
     const applied = await runMigrations(db);
-    expect(applied).toEqual(['001-reference-layers']);
+    expect(applied).toEqual(MIGRATIONS.map(m => m.name));
+    expect(applied[0]).toBe('001-reference-layers');
 
     const names = await tableNames(db);
     expect(names).toContain('schema_migrations');
