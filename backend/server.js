@@ -52,6 +52,7 @@ app.use('/api/locations/:id/battle_maps', require('./routes/battle_maps')(db, io
 app.use('/api/battle_maps', require('./routes/battle_maps')(db, io, helpers));
 app.use('/api/maps', require('./routes/maps')(db, io, helpers));
 app.use('/api/reference-layers', require('./routes/reference_layers')(db, io, helpers));
+app.use('/api/canonical-geography', require('./routes/canonical_geography')(db, io, helpers));
 app.use('/api/roads', require('./routes/roads')(db, io, helpers));
 app.use('/api/overpasses', require('./routes/overpasses')(db, io, helpers));
 app.use('/api/signs', require('./routes/signs')(db, io, helpers));

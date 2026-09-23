@@ -4,6 +4,9 @@ const path = require('path');
 const dbPath = process.env.DB_PATH || path.resolve(__dirname, 'city.db');
 console.log(`[db] opening database at: ${dbPath}`);
 const db = new sqlite3.Database(dbPath);
+// Canonical geography writes through its own connection to this file, so the two can
+// contend for SQLite's write lock. Wait for it briefly rather than failing with SQLITE_BUSY.
+db.configure('busyTimeout', require('./canonicalGeography/connection').BUSY_TIMEOUT_MS);
 
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS locations (

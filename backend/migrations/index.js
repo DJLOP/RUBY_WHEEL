@@ -15,6 +15,7 @@
 const MIGRATIONS = [
   require('./001-reference-layers'),
   require('./002-canonical-geography'),
+  require('./003-canonical-base-revision'),
 ];
 
 /** Promisified `db.run` bound to one connection, so a migration reads as a script. */

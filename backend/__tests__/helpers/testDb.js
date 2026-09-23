@@ -8,10 +8,14 @@ const { runMigrations } = require('../../migrations');
  * `migrations` defaults to the full shipped list. Passing a prefix of it gives a database
  * as it stood before a later feature, so that feature's migration can be tested bringing
  * a populated database forward.
+ *
+ * `filename` defaults to a private in-memory database. A test that needs a second
+ * connection to the *same* database passes a temporary file instead: a second connection
+ * to `:memory:` would open a different, empty database.
  */
-function makeTestDb({ migrations } = {}) {
+function makeTestDb({ migrations, filename = ':memory:' } = {}) {
   return new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(':memory:', (err) => {
+    const db = new sqlite3.Database(filename, (err) => {
       if (err) return reject(err);
     });
 

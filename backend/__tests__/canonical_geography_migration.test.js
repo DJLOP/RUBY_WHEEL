@@ -37,6 +37,7 @@ const dump = async (db, tables) => {
 };
 
 const PRE_FEATURE = MIGRATIONS.filter(m => m.name < '002-canonical-geography');
+const THROUGH_002 = MIGRATIONS.filter(m => m.name <= '002-canonical-geography');
 
 // A minimal valid row for each entity table; tests override one column at a time.
 const polygonJson = JSON.stringify({ outer: [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 10, z: 10 }, { x: 0, z: 10 }], holes: [] });
@@ -65,7 +66,7 @@ describe('002-canonical-geography on an empty database', () => {
   beforeEach(async () => { db = await emptyDb(); });
 
   it('is registered after the reference-layer migration', () => {
-    expect(MIGRATIONS.map(m => m.name)).toEqual(['001-reference-layers', '002-canonical-geography']);
+    expect(MIGRATIONS.map(m => m.name).slice(0, 2)).toEqual(['001-reference-layers', '002-canonical-geography']);
   });
 
   it('creates every canonical table and seeds exactly one root city scope', async () => {
@@ -154,7 +155,7 @@ describe('002-canonical-geography against a representative pre-feature database'
 
   it('applies only 002 and leaves every inherited and reference row byte-identical', async () => {
     const before = await dump(db, INHERITED_TABLES);
-    expect(await runMigrations(db)).toEqual(['002-canonical-geography']);
+    expect(await runMigrations(db, THROUGH_002)).toEqual(['002-canonical-geography']);
     expect(await dump(db, INHERITED_TABLES)).toEqual(before);
   });
 
