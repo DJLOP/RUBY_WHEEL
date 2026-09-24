@@ -1,9 +1,11 @@
 # RUBY_WHEEL Project Status
 
-**Status date:** 2026-09-22  
-**Current branch baseline:** `main`  
-**Current accepted baseline commit:** `2b446c2` — Add Imperial City generation bible  
+**Status date:** 2026-09-24  
+**Current implementation branch:** `feature/canonical-geography`  
+**Latest pushed accepted implementation commit:** `7e91644` — Add canonical geography query and rendering (WP3–WP4)  
+**Canonical-geography plan baseline commit:** `2eaff3e` — Approve canonical geography implementation plan  
 **Requirements/architecture baseline commit:** `8f02ed4` — Define generation hierarchy and canonical city scale  
+**Imperial City generation bible commit:** `2b446c2` — Add Imperial City generation bible  
 **Reference-layer plan baseline commit:** `eb47959` — Plan persistent calibrated reference layers  
 **Upstream baseline:** `4fb2ecfb0b90c056d8f1f386aeb28e213f087405`  
 **Baseline tag:** `city-net-baseline-4fb2ecf`
@@ -15,11 +17,14 @@
 - The working project requirements are in `docs/REQUIREMENTS.md`.
 - The architecture contract is in `docs/ARCHITECTURE.md`.
 - The inherited CITY_NET audit is recorded in `docs/UPSTREAM_AUDIT.md`.
-- The GM-accepted human-readable world specification and initial must-exist hard-anchor set are in `docs/IMPERIAL_CITY_GENERATION_BIBLE.md` (committed `2b446c2`).
+- The GM-accepted human-readable world specification and initial must-exist hard-anchor set are in `docs/IMPERIAL_CITY_GENERATION_BIBLE.md`.
 - `AGENTS.md` is the canonical model-agnostic agent operating guide.
 - `CLAUDE.md` is only a thin bootstrap pointing Claude to `AGENTS.md`.
-- The first RUBY_WHEEL-specific implementation slice — persistent calibrated reference layers — is complete, human-accepted, merged to `main`, and pushed.
-- The accepted reference-layer implementation is recorded across WP1–WP5 commits `574ba14`, `59dcf73`, `ec39b5f`, `7b68369`, `c3a2e68`, plus human-acceptance remediation commit `1097e70`.
+- The persistent calibrated reference-layer slice is complete, human-accepted, merged to `main`, and pushed.
+- `docs/CANONICAL_GEOGRAPHY_PLAN.md` is approved and committed (`2eaff3e`).
+- Canonical Geography WP1–WP4 are complete, reviewed, accepted, committed, and pushed on `feature/canonical-geography`.
+- Canonical Geography WP5 — tracing and feature editing — is implemented, automated-validation green, Sol-reviewed with no material findings, and human-accepted. It is currently **uncommitted**.
+- WP6 has not started.
 
 ## Primary Product Objective
 
@@ -50,9 +55,11 @@ The accepted capability supports:
 
 The target Imperial City PNG is **6032 × 4584 px** and renders successfully as a single reference texture.
 
-## Verification of Accepted Slice
+The accepted reference-layer implementation is recorded across WP1–WP5 commits `574ba14`, `59dcf73`, `ec39b5f`, `7b68369`, `c3a2e68`, plus human-acceptance remediation commit `1097e70`.
 
-Automated verification recorded during WP5 and acceptance remediation:
+## Verification of Accepted Reference-Layer Slice
+
+Automated verification recorded during reference-layer WP5 and acceptance remediation:
 
 - Backend full suite: **84 files / 2,132 tests passed, 0 failed**.
 - Frontend full suite after acceptance remediation: **130 files / 2,875 tests passed, 0 failed**.
@@ -72,13 +79,74 @@ Human browser verification passed, including:
 - legacy saved-map preservation boundary;
 - reference imagery remaining separate from procedural/canonical world data.
 
-One inherited unrelated Socket.IO timing test (`sockets.deathsave.test.js`) failed once during WP5 validation and could not be reproduced in repeated isolated/full-suite runs. It remains inherited technical debt, not a reference-layer defect.
+One inherited unrelated Socket.IO timing test (`sockets.deathsave.test.js`) failed once during reference-layer validation and could not be reproduced in repeated isolated/full-suite runs. It remains inherited technical debt, not a reference-layer defect.
+
+## Active Slice — Canonical Geography
+
+The approved capability establishes a governed, versioned canonical spatial substrate between reference evidence and future procedural generation.
+
+### Accepted implementation progress
+
+- **WP1 — Schema, geometry core, physical scale:** complete and accepted; commit `ab250ad` (`Add canonical geography foundation`).
+- **WP2 — Lifecycle REST and protection:** complete and accepted; commit `461f225` (`Add canonical geography lifecycle and protection`).
+- **WP3 — Query seam and scale measurement:** complete and accepted.
+- **WP4 — Data wiring and rendering:** complete and accepted.
+- **WP3–WP4 pushed checkpoint:** commit `7e91644` (`Add canonical geography query and rendering`).
+- **WP5 — Tracing and feature editing:** implementation complete, Sol review clean, human acceptance complete, but changes are still uncommitted.
+- **WP6 — Anchors, connections, scopes UI:** next.
+- **WP7 — Import/export, legacy promotion, Bible-derived initial register, final verification:** not started.
+
+### Canonical-geography capability now available through WP5
+
+- first-class canonical features, anchors, connections, scopes, and revision history;
+- explicit draft/proposed/accepted/retired lifecycle;
+- world-editor-only mutation boundary;
+- revise → explicit accept workflow with stale-revision protection;
+- lock/unlock, replacement-state protection, retire/restore, and history;
+- exact 0.001-wu integer-grid topology;
+- accepted land non-overlap/non-touch rules;
+- required-scope, connection, membership, and dependent validation;
+- isolated canonical SQLite transaction connection;
+- accepted-only generator-facing canonical query with digest, metrics, readiness, hierarchy chain, water semantics, and crossing obligations;
+- exact route/water and route/land-exit classification;
+- frontend canonical constraints adapter independent of raster state;
+- scalable merged canonical rendering above reference evidence and below inherited overlays;
+- interactive canonical tracing/editing against reference evidence;
+- client normalization aids and physical/source-coordinate readouts;
+- explicit draft save, accept confirmation, revise, lock, retire, replacement, and history workflow.
+
+### WP5 verification
+
+Latest recorded WP5 automated validation:
+
+- WP5 focused frontend tests: **113 passed**.
+- Canonical-geography frontend tests: **186 passed, 1 skipped**.
+- Full frontend suite: **144 files / 3,061 passed, 1 skipped**.
+- Frontend production build passed.
+- Latest full backend WP5 gate before the final frontend-only readout regressions: **103 files / 2,512 passed**; no backend files changed afterward.
+- Sol review reported no material WP5 defects and judged WP5 safe to accept and WP6 safe to begin.
+
+WP5 human acceptance passed, including:
+
+- tracing a real island against the calibrated Imperial City raster;
+- click-versus-drag behavior and ordinary camera movement;
+- snapping and ring closure;
+- normalization workflow;
+- source-pixel and metric readout;
+- draft persistence and explicit accept;
+- lock/unlock, revise, revision history, and draft-from-history;
+- reload/restart persistence.
+
+Two useful live acceptance findings were resolved:
+
+1. External snapping could steal click-to-close intent near the polygon's first vertex. Ring-close intent now takes priority.
+2. The reference layer had been stored at `1 wu/px`, which made a correct pixel readout reveal that the raster itself was physically underscaled. The layer was recalibrated to the canonical Imperial City source scale `250/127 ≈ 1.968503937 wu/px`, and the metric/source-pixel check was re-run successfully.
 
 ## Post-Reference-Layer Design Direction
 
-These decisions are now recorded authoritatively as R-006, R-007, R-025 in `docs/REQUIREMENTS.md` and A-015–A-017 in `docs/ARCHITECTURE.md` (committed `8f02ed4`); those documents govern if this summary differs.
+These decisions are recorded authoritatively as R-006, R-007, R-025 in `docs/REQUIREMENTS.md` and A-015–A-017 in `docs/ARCHITECTURE.md` (committed `8f02ed4`); those documents govern if this summary differs.
 
-The next generation-facing work must preserve the following decisions before procedural generation begins:
+Generation-facing work must preserve the following decisions:
 
 - **Preserve canon, not pixels.**
 - The raster is calibrated reference evidence, not canonical fine geometry.
@@ -86,9 +154,9 @@ The next generation-facing work must preserve the following decisions before pro
 - Hand-drawn/scan/GIMP artifacts — including thick or dirty coastlines, imperfect circles, stroke width, anti-aliasing, color edits, and drawing irregularities — must not silently become canonical world geometry.
 - Canonical spatial constraints should be normalized and explicitly accepted before generators consume them.
 - Distinguish:
-  - **hard anchors** — exact location/shape matters;
+  - **hard anchors** — identity/presence and established spatial/functional relationships are protected; exact part geometry may still be soft unless independently fixed;
   - **soft anchors** — existence/role matters, exact footprint may be generated;
-  - **ordinary urban fabric** — freely procedural unless later promoted to canon.
+  - **ordinary urban fabric** — freely procedural unless intentionally promoted to canon.
 - Existing raster roads, bridges, walls, gates, docks/quays, and similar marks are evidence of intent unless specifically promoted to canonical normalized geometry.
 - Ordinary streets/buildings visible in the raster are not canonical merely because they were hand-drawn.
 - Generation should be hierarchical:
@@ -110,13 +178,26 @@ The physical-scale contract is settled and recorded as R-005 / A-014:
 - **1 source pixel = 3 meters**, so the source-scale reference calibration is `250/127 ≈ 1.968503937` world units per pixel;
 - canonical exterior-wall span: **6,744 m** east–west and north–south (`2,248 px × 3 m/px`), approximately **4,425.20 world units**.
 
-A UI measurement/display setting (such as the inherited `GLOBAL MAP SCALE (FT/UNIT)` control) must not silently redefine the physical size of canonical geometry. No UI change has been made for this.
+A UI measurement/display setting (such as the inherited `GLOBAL MAP SCALE (FT/UNIT)` control) must not silently redefine the physical size of canonical geometry.
+
+The current Imperial City reference layer was explicitly corrected to the canonical `250/127` source calibration during WP5 human acceptance. Canonical geometry remains independent of later reference-layer recalibration.
 
 ## Immediate Objective
 
-The requirements/architecture amendment (`8f02ed4`) and the Imperial City generation bible (`2b446c2`) are committed to `main`.
+Close the accepted WP5 checkpoint in Git, then implement **WP6 — Anchors, Connections, and Scopes UI** on `feature/canonical-geography`.
 
-The active next capability is **normalized canonical macro geography and hard-anchor establishment/import**. Its plan, `docs/CANONICAL_GEOGRAPHY_PLAN.md`, is **proposed and uncommitted**, awaiting human approval. It is not full-raster vectorization, computer-vision reconstruction, direct generation from raw pixels, or whole-city procedural generation.
+WP6 adds:
+
+- anchor register and anchor-part workflow;
+- connection creation between supported parts/islands;
+- district / island-group / subregion scope creation;
+- explicit land membership;
+- optional scope boundaries;
+- partial/complete land-coverage controls.
+
+WP7 remains responsible for interchange import/export, legacy promotion, the Bible-derived `docs/canonical/initial_register.v1.json`, and final end-to-end verification.
+
+This slice remains a canonical-constraint substrate. It does not perform whole-city procedural generation.
 
 ## Current Non-Goals
 
@@ -135,11 +216,13 @@ Do not yet implement:
 
 ## Next Planned Repository Step
 
-1. Human review and approval of `docs/CANONICAL_GEOGRAPHY_PLAN.md`.
-2. Commit the approved plan to `main` before implementation.
-3. Create a dedicated implementation branch for that capability.
+1. Commit the human-accepted WP5 implementation and this status update on `feature/canonical-geography`.
+2. Push the WP5 checkpoint.
+3. Implement WP6 on the same feature branch.
+4. Run WP6 automated validation and human checks for anchors, network connections, and scopes.
+5. Proceed to WP7 only after WP6 is human-accepted.
 
-Implementation must not begin on `main`.
+Implementation must not move back to `main` mid-slice.
 
 ## Workflow Rule
 

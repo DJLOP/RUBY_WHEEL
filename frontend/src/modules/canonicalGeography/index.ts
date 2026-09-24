@@ -4,7 +4,10 @@
 
 export { CanonicalGeographyLayer } from './CanonicalGeographyLayer';
 export { CanonicalGeographyManager } from './CanonicalGeographyManager';
-export { fetchCanonicalGeography, EMPTY_CANONICAL_GEOGRAPHY, CANONICAL_API } from './api';
+export { TracingTool } from './TracingTool';
+export { createTracingSession } from './tracing';
+export type { TracingSession } from './tracing';
+export { fetchCanonicalGeography, EMPTY_CANONICAL_GEOGRAPHY, CANONICAL_API, canonicalApi } from './api';
 export type { CanonicalGeographyData } from './api';
 export { createCanonicalConstraints, pointInCanonicalPolygon } from './constraints';
 export type { CanonicalConstraints, GroundClass, FootprintRect, FootprintConflict } from './constraints';

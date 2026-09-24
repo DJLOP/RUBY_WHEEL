@@ -204,7 +204,10 @@ export type ViewMode =
   // The signs editor has always been one of these; the type never said so, because
   // AdminPanel's props are untyped and set it as a bare string. Anything guarding on it
   // from a typed file compiled to a comparison that could never be true.
-  | 'signs';
+  | 'signs'
+  // Canonical-geography tracing: the TracingTool owns ground clicks, and the inherited
+  // drawing/selection handlers stay inactive.
+  | 'canonical_geo';
 
 export type SidebarMenu =
   | 'none'

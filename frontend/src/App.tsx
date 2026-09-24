@@ -69,7 +69,7 @@ import { Overpasses, OverpassPreview } from './components/Overpasses';
 import { Sidewalks } from './components/Sidewalks';
 import { Signs, AutoSignage, useSignEditing, type SignData } from './modules/signs';
 import { ReferenceLayers, ReferenceLayerManager, ReferenceLayerFraming, withPreview, type ReferenceLayerPreview, type ReferenceFrameRequest } from './modules/referenceLayers';
-import { CanonicalGeographyLayer, CanonicalGeographyManager } from './modules/canonicalGeography';
+import { CanonicalGeographyLayer, CanonicalGeographyManager, TracingTool, createTracingSession } from './modules/canonicalGeography';
 import { type RemoteFont } from './utils/fontLoader';
 import type { LayoutType, WaterType, RoundaboutDensity } from './cityGen';
 import { GlobalCameraCapture, CursorPivotControls, CameraController, KeyboardPan, AdaptiveClipping } from './components/Camera';
@@ -109,6 +109,8 @@ function App() {
   const [showCanonicalGeographyManager, setShowCanonicalGeographyManager] = useState(false);
   /** Hides the canonical overlay so the evidence beneath can be compared against it. */
   const [canonicalOverlayVisible, setCanonicalOverlayVisible] = useState(true);
+  /** The one feature being traced/edited; shared by the in-scene tool and the manager without re-rendering the app. */
+  const canonicalTracing = useMemo(() => createTracingSession(), []);
   /** A pending request to look straight down at one layer. The nonce makes it repeatable. */
   const [referenceFrameRequest, setReferenceFrameRequest] = useState<ReferenceFrameRequest | null>(null);
   /** Unsaved reference-layer calibration, shown in this client's scene only. */
@@ -608,6 +610,8 @@ function App() {
     // and a sign sits flat against whatever is behind it, so aiming at one and hitting the
     // structure underneath was easy — and it swapped the panel out from under you.
     if (view === 'signs') return;
+    // While tracing canonical geography, ground clicks place vertices; buildings are not selectable.
+    if (view === 'canonical_geo') return;
     // While the signs editor is open, only signs are selectable. The two share the scene
     // and a sign sits flat against whatever is behind it, so aiming at one and hitting the
     // structure underneath was easy — and it swapped the panel out from under you.
@@ -1570,10 +1574,16 @@ function App() {
       )}
       {showCanonicalGeographyManager && isAdmin && isPrimaryAdmin && (
         <CanonicalGeographyManager
+          token={token}
           data={canonicalGeography}
+          referenceLayers={referenceLayers}
+          refresh={fetchCanonicalGeography}
+          session={canonicalTracing}
+          tracingActive={view === 'canonical_geo'}
+          onTracingChange={(active) => setView(active ? 'canonical_geo' : 'list')}
           overlayVisible={canonicalOverlayVisible}
           onToggleOverlay={() => setCanonicalOverlayVisible(v => !v)}
-          onClose={() => setShowCanonicalGeographyManager(false)}
+          onClose={() => { if (view === 'canonical_geo') setView('list'); setShowCanonicalGeographyManager(false); }}
         />
       )}
       {showBattleMapManager && (selectedLocation || activeEditLocation || editId) && (
@@ -2820,6 +2830,10 @@ function App() {
             {/* Canonical geography: above the reference rasters it was traced from, below the
                 inherited overlays, never raycast. World branch only, like the rasters. */}
             <CanonicalGeographyLayer features={canonicalGeography.features} visible={canonicalOverlayVisible} />
+            {/* Tracing one canonical feature: primary admin, world branch, its own view only. */}
+            {view === 'canonical_geo' && showCanonicalGeographyManager && isPrimaryAdmin && (
+              <TracingTool session={canonicalTracing} features={canonicalGeography.features} setIsDragging={setIsDragging} />
+            )}
             <WorldGrid name="city-grid" raycast={() => null} infiniteGrid fadeDistance={750} fadeStrength={1.5} cellSize={1} cellThickness={0.7} sectionSize={10} sectionThickness={1.2} sectionColor={THEMES[currentTheme].gridSection} cellColor={THEMES[currentTheme].gridCell} />
             {token !== '' && (
               <CloseRangeOnly>

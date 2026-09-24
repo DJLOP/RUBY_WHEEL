@@ -9,7 +9,7 @@
  */
 
 import type {
-  CanonicalAnchor, CanonicalConnection, CanonicalFeature, GeoScope, LifecycleState,
+  CanonicalAnchor, CanonicalConnection, CanonicalFeature, GeoScope, LifecycleState, ReplacementState,
 } from './types';
 
 export const CANONICAL_API = '/api/canonical-geography';
@@ -53,3 +53,97 @@ export async function fetchCanonicalGeography(worldEditorToken: string | null): 
   if (!accepted) throw new Error('canonical geography could not be loaded');
   return { ...accepted, includesWorkingSet: false };
 }
+
+// ── lifecycle requests (world editor) ─────────────────────────────────────────
+
+export type CanonicalEntity = 'features' | 'anchors' | 'connections' | 'scopes';
+
+/**
+ * A refusal as the server words it. `violations`, `warnings`, `dependents` and
+ * `draft_version` are carried through so the UI can show all of them at once.
+ */
+export interface CanonicalApiError {
+  status: number;
+  error: string;
+  violations?: unknown[];
+  warnings?: unknown[];
+  dependents?: unknown[];
+  draft_version?: number;
+  code?: string;
+  [key: string]: unknown;
+}
+
+export type CanonicalResult<T> = { ok: true; data: T } | { ok: false; error: CanonicalApiError };
+
+/** One history row (GET /:entity/:id/revisions). */
+export interface CanonicalRevision {
+  id: number;
+  entity_type: string;
+  entity_id: number;
+  revision: number;
+  change_kind: 'accept' | 'descriptive_edit' | 'retire' | 'restore' | 'lock' | 'unlock' | 'replacement_change';
+  snapshot: Record<string, unknown>;
+  created_at: string;
+}
+
+/**
+ * One request to the canonical API. Never throws: a network failure or a refusal comes
+ * back as `{ok: false}` with the server's own message where there is one, because the
+ * caller must keep the editor's unsaved work on screen either way.
+ */
+export async function canonicalRequest<T>(token: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string,
+  body?: unknown): Promise<CanonicalResult<T>> {
+  let res: Response;
+  try {
+    res = await fetch(`${CANONICAL_API}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (err) {
+    return { ok: false, error: { status: 0, error: `Network error: ${err instanceof Error ? err.message : String(err)}` } };
+  }
+  let data: unknown = null;
+  try { data = await res.json(); } catch { /* empty or non-JSON body */ }
+  if (res.ok) return { ok: true, data: data as T };
+  const refusal = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const error: CanonicalApiError = {
+    ...refusal,
+    status: res.status,
+    error: typeof refusal.error === 'string' ? refusal.error : `Request failed (${res.status})`,
+  };
+  return { ok: false, error };
+}
+
+/**
+ * The lifecycle operations of plan §5.2, one request each. There is deliberately no
+ * combined operation: accept-and-lock is two calls, and unlocking never rides along with
+ * another change.
+ */
+export const canonicalApi = {
+  list: <T>(token: string, entity: CanonicalEntity, states: LifecycleState[]) =>
+    canonicalRequest<T[]>(token, 'GET', `/${entity}?states=${states.join(',')}&_t=${Date.now()}`),
+  create: <T>(token: string, entity: CanonicalEntity, body: Record<string, unknown>) =>
+    canonicalRequest<T>(token, 'POST', `/${entity}`, body),
+  patch: <T>(token: string, entity: CanonicalEntity, id: number, body: Record<string, unknown>) =>
+    canonicalRequest<T>(token, 'PATCH', `/${entity}/${id}`, body),
+  remove: (token: string, entity: CanonicalEntity, id: number) =>
+    canonicalRequest<{ id: number; deleted: true }>(token, 'DELETE', `/${entity}/${id}`),
+  revise: <T>(token: string, entity: CanonicalEntity, id: number) =>
+    canonicalRequest<T>(token, 'POST', `/${entity}/${id}/revise`),
+  accept: <T>(token: string, entity: CanonicalEntity, id: number, expectedDraftVersion: number) =>
+    canonicalRequest<{ record: T; warnings: unknown[] }>(token, 'POST', `/${entity}/${id}/accept`,
+      { expected_draft_version: expectedDraftVersion }),
+  retire: <T>(token: string, entity: CanonicalEntity, id: number) =>
+    canonicalRequest<T>(token, 'POST', `/${entity}/${id}/retire`),
+  restore: <T>(token: string, entity: CanonicalEntity, id: number) =>
+    canonicalRequest<{ record: T; warnings: unknown[] }>(token, 'POST', `/${entity}/${id}/restore`),
+  setLock: <T>(token: string, entity: CanonicalEntity, id: number, isLocked: boolean) =>
+    canonicalRequest<T>(token, 'PATCH', `/${entity}/${id}/lock`, { is_locked: isLocked }),
+  setReplacement: <T>(token: string, entity: CanonicalEntity, id: number, replacementState: ReplacementState) =>
+    canonicalRequest<T>(token, 'PATCH', `/${entity}/${id}/replacement`, { replacement_state: replacementState }),
+  history: (token: string, entity: CanonicalEntity, id: number) =>
+    canonicalRequest<CanonicalRevision[]>(token, 'GET', `/${entity}/${id}/revisions`),
+  draftFromHistory: <T>(token: string, entity: CanonicalEntity, id: number, revision: number) =>
+    canonicalRequest<T>(token, 'POST', `/${entity}/${id}/revisions/${revision}/draft`),
+};

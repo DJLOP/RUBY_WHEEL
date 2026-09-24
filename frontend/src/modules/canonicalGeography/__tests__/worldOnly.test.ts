@@ -32,6 +32,18 @@ describe('canonical geography is confined to the world scene', () => {
     expect(layer).toBeGreaterThan(references);
   });
 
+  it('mounts the tracing tool once, in the world branch, only in the tracing view for the primary admin', () => {
+    expect(app.match(/<TracingTool\b/g)).toHaveLength(1);
+    const worldBranch = app.indexOf('<PerspectiveCamera makeDefault');
+    const tool = app.indexOf('<TracingTool');
+    expect(tool).toBeGreaterThan(worldBranch);
+    expect(app).toMatch(/view === 'canonical_geo' && showCanonicalGeographyManager && isPrimaryAdmin && \(\s*<TracingTool/);
+  });
+
+  it('keeps buildings unselectable while tracing', () => {
+    expect(app).toMatch(/if \(view === 'canonical_geo'\) return;/);
+  });
+
   it('is not reachable from the battle-map scene or manager', () => {
     for (const file of ['BattleMapScene.tsx', 'BattleMapManager.tsx']) {
       expect(read(file)).not.toMatch(/canonicalGeography|CanonicalGeography|canonical-geography/);
