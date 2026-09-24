@@ -349,9 +349,86 @@ async function validateScope(q, cand, canonicalId, members, findings) {
     }
   }
 
+  await checkMembershipCoherence(q, cand, canonicalId, members, findings);
+
   // Parts that already had to lie inside this scope must still do so under its new extent.
   const extent = await scopeExtent(q, cand, members);
   await checkScopeDependents(q, canonicalId, extent, new Map(), findings);
+}
+
+/**
+ * Every accepted land feature's explicit memberships must lie on one ancestry chain:
+ * each membership scope is the deepest membership scope or one of its ancestors
+ * (city → district → island group → subregion). Island X in district A and in island
+ * group G whose parent is district B is a contradiction — a query would have to drop one.
+ *
+ * Checked against the candidate state: this scope with its proposed parent and members in
+ * place of its current accepted form, and every other accepted scope and membership as it
+ * is. Affected are this scope's members and the members of every accepted scope beneath
+ * it, since a parent change moves their lineage too. Membership stays explicit: nothing
+ * here infers membership from boundaries.
+ */
+async function checkMembershipCoherence(q, cand, canonicalId, members, findings) {
+  const tree = new Map((await q.all(
+    `SELECT id, scope_kind, parent_scope_id FROM geo_scopes WHERE lifecycle_state = 'accepted'`)).map(s => [s.id, s]));
+  tree.set(canonicalId, { id: canonicalId, scope_kind: cand.scope_kind, parent_scope_id: cand.parent_scope_id });
+  const lineage = (id) => {
+    const out = [];
+    const seen = new Set();
+    for (let cur = tree.get(id); cur && !seen.has(cur.id); cur = cur.parent_scope_id ? tree.get(cur.parent_scope_id) : null) {
+      seen.add(cur.id);
+      out.unshift(cur.id);
+    }
+    return out;
+  };
+
+  const byFeature = new Map();
+  const add = (fid, sid) => {
+    if (!byFeature.has(fid)) byFeature.set(fid, []);
+    byFeature.get(fid).push(sid);
+  };
+  const rows = await q.all(
+    `SELECT m.scope_id, m.feature_id FROM geo_scope_members m JOIN geo_scopes s ON s.id = m.scope_id
+      WHERE m.is_canonical = 1 AND s.lifecycle_state = 'accepted' AND m.scope_id <> ?`, [canonicalId]);
+  for (const r of rows) add(r.feature_id, r.scope_id);
+  for (const fid of members) add(fid, canonicalId);
+
+  const affected = new Set(members);
+  for (const [fid, scopeIds] of byFeature) {
+    if (scopeIds.some(sid => lineage(sid).includes(canonicalId))) affected.add(fid);
+  }
+  for (const fid of [...affected].sort((a, b) => a - b)) {
+    const scopeIds = byFeature.get(fid) || [];
+    // Two memberships of one kind (two districts) is already `scope_member_conflict`, and
+    // the unique index; reporting it again as incoherence would list one cause twice.
+    const kinds = scopeIds.map(id => tree.get(id)).filter(Boolean).map(s => s.scope_kind);
+    if (new Set(kinds).size !== kinds.length) continue;
+    const problem = membershipIncoherence(scopeIds, tree, lineage);
+    if (problem) {
+      findings.violation('scope_membership_incoherent',
+        `land #${fid} would belong to ${problem.stray.map(s => `${s.scope_kind} #${s.id}`).join(', ')}, `
+        + `which ${problem.stray.length === 1 ? 'is' : 'are'} not on the lineage of its deepest membership `
+        + `${problem.deepest.scope_kind} #${problem.deepest.id} (${problem.chain.map(s => `${s.scope_kind} #${s.id}`).join(' → ')}); `
+        + 'a land feature\'s memberships must form one ancestry chain',
+        ref('feature', fid));
+    }
+  }
+}
+
+/**
+ * Whether a land feature's membership scopes fail to form one ancestry chain. `tree` maps
+ * scope id to `{id, scope_kind, parent_scope_id}`; `lineage(id)` is root-first ids.
+ * Returns null when coherent, else the deepest membership, its chain and the strays.
+ */
+function membershipIncoherence(scopeIds, tree, lineage) {
+  const scopes = scopeIds.map(id => tree.get(id)).filter(Boolean);
+  if (scopes.length < 2) return null;
+  const deepest = scopes.reduce((d, s) =>
+    (SCOPE_RANK[s.scope_kind] > SCOPE_RANK[d.scope_kind] || (SCOPE_RANK[s.scope_kind] === SCOPE_RANK[d.scope_kind] && s.id < d.id) ? s : d));
+  const chainIds = lineage(deepest.id);
+  const stray = scopes.filter(s => !chainIds.includes(s.id)).sort((a, b) => a.id - b.id);
+  if (!stray.length) return null;
+  return { deepest, chain: chainIds.map(id => tree.get(id)), stray };
 }
 
 /**
@@ -424,4 +501,4 @@ async function validateRetire(q, spec, row) {
   return { violations: findings.violations, warnings: findings.warnings };
 }
 
-module.exports = { validateAccept, validateRetire, findDependents, scopeExtent };
+module.exports = { validateAccept, validateRetire, findDependents, scopeExtent, membershipIncoherence };

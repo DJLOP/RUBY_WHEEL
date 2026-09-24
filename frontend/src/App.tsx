@@ -69,6 +69,7 @@ import { Overpasses, OverpassPreview } from './components/Overpasses';
 import { Sidewalks } from './components/Sidewalks';
 import { Signs, AutoSignage, useSignEditing, type SignData } from './modules/signs';
 import { ReferenceLayers, ReferenceLayerManager, ReferenceLayerFraming, withPreview, type ReferenceLayerPreview, type ReferenceFrameRequest } from './modules/referenceLayers';
+import { CanonicalGeographyLayer, CanonicalGeographyManager } from './modules/canonicalGeography';
 import { type RemoteFont } from './utils/fontLoader';
 import type { LayoutType, WaterType, RoundaboutDensity } from './cityGen';
 import { GlobalCameraCapture, CursorPivotControls, CameraController, KeyboardPan, AdaptiveClipping } from './components/Camera';
@@ -103,8 +104,11 @@ function App() {
     return 'classic';
   });
   const controlsRef = useRef<any>(null);
-  const { locations, setLocations, districts, setDistricts, roads, setRoads, waterBodies, setWaterBodies, overpasses, signs, referenceLayers, fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchReferenceLayers, fetchAll } = useMapData();
+  const { locations, setLocations, districts, setDistricts, roads, setRoads, waterBodies, setWaterBodies, overpasses, signs, referenceLayers, canonicalGeography, fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchReferenceLayers, fetchCanonicalGeography, setCanonicalWorldEditorToken, fetchAll } = useMapData();
   const [showReferenceLayerManager, setShowReferenceLayerManager] = useState(false);
+  const [showCanonicalGeographyManager, setShowCanonicalGeographyManager] = useState(false);
+  /** Hides the canonical overlay so the evidence beneath can be compared against it. */
+  const [canonicalOverlayVisible, setCanonicalOverlayVisible] = useState(true);
   /** A pending request to look straight down at one layer. The nonce makes it repeatable. */
   const [referenceFrameRequest, setReferenceFrameRequest] = useState<ReferenceFrameRequest | null>(null);
   /** Unsaved reference-layer calibration, shown in this client's scene only. */
@@ -160,6 +164,18 @@ function App() {
       isPrimaryAdmin = !payload.isTemporary;
     } catch (e) { }
   }
+
+  // Drafts and proposals are the world editor's working set: fetched with the primary
+  // admin's token only, and dropped again when that session ends. Accepted canon is
+  // public and arrives with every other collection in fetchAll.
+  const canonicalEditorToken = isPrimaryAdmin ? token : null;
+  const lastCanonicalEditorToken = useRef<string | null>(null);
+  useEffect(() => {
+    setCanonicalWorldEditorToken(canonicalEditorToken);
+    if (canonicalEditorToken === lastCanonicalEditorToken.current) return;
+    lastCanonicalEditorToken.current = canonicalEditorToken;
+    fetchCanonicalGeography();
+  }, [canonicalEditorToken, setCanonicalWorldEditorToken, fetchCanonicalGeography]);
 
   // Check env var status on admin login
   useEffect(() => {
@@ -808,6 +824,7 @@ function App() {
     onFetchOverpasses: fetchOverpasses,
     onFetchSigns: fetchSigns,
     onFetchReferenceLayers: fetchReferenceLayers,
+    onFetchCanonicalGeography: fetchCanonicalGeography,
     onFetchDistricts: fetchDistricts,
     onFetchWaterBodies: fetchWaterBodies,
     onFetchBattleMaps: fetchCurrentLocBattleMaps,
@@ -1551,6 +1568,14 @@ function App() {
           onClose={() => { setReferenceLayerPreview(null); setShowReferenceLayerManager(false); }}
         />
       )}
+      {showCanonicalGeographyManager && isAdmin && isPrimaryAdmin && (
+        <CanonicalGeographyManager
+          data={canonicalGeography}
+          overlayVisible={canonicalOverlayVisible}
+          onToggleOverlay={() => setCanonicalOverlayVisible(v => !v)}
+          onClose={() => setShowCanonicalGeographyManager(false)}
+        />
+      )}
       {showBattleMapManager && (selectedLocation || activeEditLocation || editId) && (
         <BattleMapManager locationId={selectedLocation ? selectedLocation.id : (activeEditLocation ? activeEditLocation.id : (editId as number))} token={token} onClose={() => setShowBattleMapManager(false)} onMapsChanged={fetchCurrentLocBattleMaps} />
       )}
@@ -1779,6 +1804,7 @@ function App() {
                 isPrimaryAdmin={isPrimaryAdmin}
                 setShowBattleMapManager={setShowBattleMapManager}
                 onOpenReferenceLayers={() => setShowReferenceLayerManager(true)}
+                onOpenCanonicalGeography={() => setShowCanonicalGeographyManager(true)}
                 isPlantingTrees={isPlantingTrees} setIsPlantingTrees={setIsPlantingTrees}
                   treeBatchSize={treeBatchSize} setTreeBatchSize={setTreeBatchSize}
                   isDeployingEnemy={isDeployingEnemy} setIsDeployingEnemy={setIsDeployingEnemy}
@@ -2791,6 +2817,9 @@ function App() {
                 under the grid lines, water and roads, because they are what the city is
                 drawn over. */}
             <ReferenceLayers layers={previewedReferenceLayers} />
+            {/* Canonical geography: above the reference rasters it was traced from, below the
+                inherited overlays, never raycast. World branch only, like the rasters. */}
+            <CanonicalGeographyLayer features={canonicalGeography.features} visible={canonicalOverlayVisible} />
             <WorldGrid name="city-grid" raycast={() => null} infiniteGrid fadeDistance={750} fadeStrength={1.5} cellSize={1} cellThickness={0.7} sectionSize={10} sectionThickness={1.2} sectionColor={THEMES[currentTheme].gridSection} cellColor={THEMES[currentTheme].gridCell} />
             {token !== '' && (
               <CloseRangeOnly>

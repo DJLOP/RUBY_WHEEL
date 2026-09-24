@@ -1,7 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { Location, District, Road, WaterBody } from '../types';
 import type { SignData } from '../modules/signs';
 import type { ReferenceLayer } from '../modules/referenceLayers';
+import {
+  fetchCanonicalGeography as fetchCanonicalGeographyData,
+  EMPTY_CANONICAL_GEOGRAPHY,
+  type CanonicalGeographyData,
+} from '../modules/canonicalGeography/api';
 
 export function useMapData() {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -61,6 +66,26 @@ export function useMapData() {
       .catch(err => console.error('Error fetching reference layers:', err));
   }, []);
 
+  // Canonical geography: accepted canon for everyone, plus drafts and proposals when a
+  // world-editor token has been set. The token lives in a ref so this callback stays
+  // stable for the socket listener, which captures it once. A sequence number drops a
+  // response that arrives after a newer request's, so rapid refreshes cannot regress.
+  const [canonicalGeography, setCanonicalGeography] = useState<CanonicalGeographyData>(EMPTY_CANONICAL_GEOGRAPHY);
+  const canonicalTokenRef = useRef<string | null>(null);
+  const canonicalSeqRef = useRef(0);
+
+  const fetchCanonicalGeography = useCallback(() => {
+    const seq = ++canonicalSeqRef.current;
+    fetchCanonicalGeographyData(canonicalTokenRef.current)
+      .then(data => { if (seq === canonicalSeqRef.current) setCanonicalGeography(data); })
+      .catch(err => console.error('Error fetching canonical geography:', err));
+  }, []);
+
+  /** The world editor's token (primary admin only), or null for accepted canon alone. */
+  const setCanonicalWorldEditorToken = useCallback((token: string | null) => {
+    canonicalTokenRef.current = token || null;
+  }, []);
+
   const fetchAll = useCallback(() => {
     fetchLocations();
     fetchDistricts();
@@ -69,7 +94,8 @@ export function useMapData() {
     fetchOverpasses();
     fetchSigns();
     fetchReferenceLayers();
-  }, [fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchReferenceLayers]);
+    fetchCanonicalGeography();
+  }, [fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns, fetchReferenceLayers, fetchCanonicalGeography]);
 
   return {
     locations, setLocations,
@@ -79,7 +105,8 @@ export function useMapData() {
     overpasses, setOverpasses,
     signs, setSigns,
     referenceLayers, setReferenceLayers,
+    canonicalGeography,
     fetchLocations, fetchDistricts, fetchRoads, fetchWaterBodies, fetchOverpasses, fetchSigns,
-    fetchReferenceLayers, fetchAll,
+    fetchReferenceLayers, fetchCanonicalGeography, setCanonicalWorldEditorToken, fetchAll,
   };
 }

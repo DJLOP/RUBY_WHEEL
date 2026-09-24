@@ -252,6 +252,175 @@ function geometryIntersectsPolygon(geometryType, geometry, polygon) {
   }
 }
 
+/**
+ * How a normalized geometry sits against one polygon, decided on the grid:
+ *
+ *   'inside'   wholly within the polygon's interior — no boundary contact, and it covers
+ *              none of the polygon's holes;
+ *   'boundary' it shares points with the polygon and also touches or crosses its boundary,
+ *              or it covers the polygon (or one of its holes) from outside;
+ *   'outside'  no shared point.
+ *
+ * Used by the generator query to tell "inside the requested extent" from "straddling its
+ * edge". Predicates only — nothing is clipped.
+ */
+function relateGeometryToPolygon(geometryType, geometry, polygon) {
+  if (geometryType === 'point') {
+    return locatePointInPolygon(geometry, polygon);
+  }
+  const target = polygonToGrid(polygon);
+  let segments;
+  let first;
+  let asPolygon = null;
+  if (geometryType === 'linestring') {
+    const line = ringToGrid(geometry);
+    if (!bboxesIntersect(bboxOfPoints(line), bboxOfPoints(target.outer))) return 'outside';
+    segments = lineSegments(line);
+    first = line[0];
+  } else if (geometryType === 'polygon') {
+    asPolygon = polygonToGrid(geometry);
+    if (!bboxesIntersect(bboxOfPoints(asPolygon.outer), bboxOfPoints(target.outer))) return 'outside';
+    segments = polygonSegments(asPolygon);
+    first = asPolygon.outer[0];
+  } else {
+    throw new TypeError(`unknown geometry type: ${geometryType}`);
+  }
+  if (gAnySegmentsIntersect(segments, polygonSegments(target))) return 'boundary';
+  // No boundary contact: the geometry is wholly inside, wholly outside, or (a polygon only)
+  // wholly covers the target or one of its holes.
+  if (gLocatePointInPolygon(first, target) === 'inside') {
+    if (asPolygon && target.holes.some(h => gLocatePointInPolygon(h[0], asPolygon) !== 'outside')) return 'boundary';
+    return 'inside';
+  }
+  if (asPolygon && gLocatePointInPolygon(target.outer[0], asPolygon) !== 'outside') return 'boundary';
+  return 'outside';
+}
+
+// ---------------------------------------------------------------------------------------
+// Exact linestring pieces: where a route is covered by which polygons.
+//
+// Sampling vertices and midpoints misses a narrow channel between samples or a brief exit
+// through a concavity. Instead each segment is cut at every point where it meets the
+// boundary of any given polygon. Between two consecutive cuts the open piece meets no
+// boundary (or lies along one), so it is either wholly inside, wholly on the boundary of,
+// or wholly outside each polygon — and locating one interior point of the piece decides it.
+//
+// Cuts are exact rationals along the segment. On the 0.001-wu grid every product used to
+// build them stays below 2^53 (differences ≤ 4e7, products ≤ 3.2e15), so they are formed as
+// integers and carried as BigInt fractions; the piece's interior point is then located
+// with BigInt orientation, so no epsilon is ever involved.
+// ---------------------------------------------------------------------------------------
+
+const frac = (n, d) => (d < 0n ? { n: -n, d: -d } : { n, d });
+const fracCompare = (a, b) => {
+  const l = a.n * b.d;
+  const r = b.n * a.d;
+  return l < r ? -1 : l > r ? 1 : 0;
+};
+
+/** Push the parameters along grid segment a-b at which it meets grid segment c-d. */
+function gCutParameters(a, b, c, d, out) {
+  if (!gSegmentsIntersect(a, b, c, d)) return;
+  const rx = b.x - a.x;
+  const rz = b.z - a.z;
+  const sx = d.x - c.x;
+  const sz = d.z - c.z;
+  const denom = rx * sz - rz * sx;
+  if (denom !== 0) {
+    out.push(frac(BigInt((c.x - a.x) * sz - (c.z - a.z) * sx), BigInt(denom)));
+    return;
+  }
+  // Collinear overlap: cut where c and d project onto a-b, when they fall within it.
+  const len2 = rx * rx + rz * rz;
+  for (const p of [c, d]) {
+    const dot = (p.x - a.x) * rx + (p.z - a.z) * rz;
+    if (dot >= 0 && dot <= len2) out.push(frac(BigInt(dot), BigInt(len2)));
+  }
+}
+
+/**
+ * 'inside' | 'boundary' | 'outside' for the rational point (px/den, pz/den) — BigInt
+ * numerators over a common BigInt denominator — against a grid polygon. The same ray cast
+ * as gLocatePointInRing, in BigInt so it stays exact.
+ */
+function bLocatePointInPolygon(px, pz, den, polygon) {
+  const ring = (r) => {
+    let inside = false;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const ax = BigInt(r[j].x) * den;
+      const az = BigInt(r[j].z) * den;
+      const bx = BigInt(r[i].x) * den;
+      const bz = BigInt(r[i].z) * den;
+      const o = (bx - ax) * (pz - az) - (bz - az) * (px - ax);
+      if (o === 0n
+        && (ax < bx ? ax <= px && px <= bx : bx <= px && px <= ax)
+        && (az < bz ? az <= pz && pz <= bz : bz <= pz && pz <= az)) return 'boundary';
+      if ((az > pz) !== (bz > pz) && (bz > az ? o > 0n : o < 0n)) inside = !inside;
+    }
+    return inside ? 'inside' : 'outside';
+  };
+  const outer = ring(polygon.outer);
+  if (outer !== 'inside') return outer;
+  for (const h of polygon.holes) {
+    const r = ring(h);
+    if (r === 'boundary') return 'boundary';
+    if (r === 'inside') return 'outside';
+  }
+  return 'inside';
+}
+
+/**
+ * Cut a normalized linestring into pieces against a set of polygons, exactly.
+ *
+ * Returns one entry per piece: `{ segment, from, to, within, interior }`, where `segment`
+ * is the segment index, `from`/`to` are the piece's parameters along it (as numbers, for
+ * reporting only), `within` lists the indices of the polygons whose closed region —
+ * interior or boundary — contains the whole piece, and `interior` the subset whose open
+ * interior does (a piece lying along a boundary is `within` but not `interior`; a piece in
+ * a hole is neither). Every piece has positive length: a point contact is only a cut. A
+ * piece that lies in no polygon is outside all of them along its entire open length.
+ */
+function linestringPieces(line, polygons) {
+  const gridLine = ringToGrid(line);
+  const grids = polygons.map(p => {
+    const g = polygonToGrid(p);
+    return { g, box: bboxOfPoints(g.outer), segments: polygonSegments(g) };
+  });
+  const pieces = [];
+  for (let s = 0; s + 1 < gridLine.length; s++) {
+    const a = gridLine[s];
+    const b = gridLine[s + 1];
+    const box = segmentBox([a, b]);
+    const near = grids.map((p, i) => ({ ...p, i })).filter(p => bboxesIntersect(box, p.box));
+    const cuts = [frac(0n, 1n), frac(1n, 1n)];
+    for (const p of near) {
+      for (const seg of p.segments) {
+        if (bboxesIntersect(box, segmentBox(seg))) gCutParameters(a, b, seg[0], seg[1], cuts);
+      }
+    }
+    cuts.sort(fracCompare);
+    const unique = cuts.filter((t, k) => k === 0 || fracCompare(t, cuts[k - 1]) !== 0);
+    for (let k = 0; k + 1 < unique.length; k++) {
+      const t0 = unique[k];
+      const t1 = unique[k + 1];
+      // Interior point of the piece: the mean of its two cut parameters.
+      const den = 2n * t0.d * t1.d;
+      const tn = t0.n * t1.d + t1.n * t0.d;
+      const px = BigInt(a.x) * den + tn * BigInt(b.x - a.x);
+      const pz = BigInt(a.z) * den + tn * BigInt(b.z - a.z);
+      const within = [];
+      const interior = [];
+      for (const p of near) {
+        const where = bLocatePointInPolygon(px, pz, den, p.g);
+        if (where !== 'outside') within.push(p.i);
+        if (where === 'inside') interior.push(p.i);
+      }
+      pieces.push({ segment: s, from: Number(t0.n) / Number(t0.d), to: Number(t1.n) / Number(t1.d), within, interior });
+    }
+  }
+  return pieces;
+}
+
 // ---------------------------------------------------------------------------------------
 // Area and length, in world units. Convert with physicalScale.js, never map scale.
 // ---------------------------------------------------------------------------------------
@@ -537,6 +706,8 @@ module.exports = {
   polygonsIntersect,
   linestringIntersectsPolygon,
   geometryIntersectsPolygon,
+  relateGeometryToPolygon,
+  linestringPieces,
   ringSignedArea,
   polygonArea,
   linestringLength,

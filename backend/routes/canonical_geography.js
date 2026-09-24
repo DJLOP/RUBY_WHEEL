@@ -4,7 +4,8 @@ const { createStore } = require('../canonicalGeography/store');
 const { CanonicalError } = require('../canonicalGeography/errors');
 
 /**
- * Canonical geography: lifecycle and protection (plan §5.1–§5.2, WP2).
+ * Canonical geography: lifecycle and protection (plan §5.1–§5.2, WP2), and the
+ * generator-facing query (plan §5.3, WP3).
  *
  * The rules live in `canonicalGeography/store.js`; this file is authorization, HTTP shape
  * and the realtime nudge. Accepted canon is a public read, like the rest of the shared
@@ -41,11 +42,16 @@ module.exports = (db, io, { emitUpdate }) => {
     return ok;
   };
 
-  /** A mutation: one emit on success, none on failure. */
+  /**
+   * A mutation: one emit on success, none on failure. The payload flag tells clients this
+   * broadcast changed canonical geography, so they refetch it only then — at city scale the
+   * canonical set is megabytes, and inherited `dataUpdated` broadcasts are frequent and
+   * never change it.
+   */
   const mutation = (status, handler) => async (req, res) => {
     try {
       const result = await handler(req);
-      emitUpdate();
+      emitUpdate({ canonicalGeography: true });
       res.status(status).json(result);
     } catch (err) { fail(res, err); }
   };
@@ -53,6 +59,16 @@ module.exports = (db, io, { emitUpdate }) => {
   // ── software proposals (before /:entity so "proposals" is never read as an entity) ──
 
   router.post('/proposals', ...editor, mutation(201, (req) => store.createProposal(req.body)));
+
+  // ── generator-facing query (before /:entity so "query" is never read as an entity) ──
+
+  // Public, like accepted canon itself, and read-only: it never emits. Only accepted rows
+  // can reach the bundle (plan §5.3).
+  router.post('/query', async (req, res) => {
+    try {
+      res.json(await store.query(req.body));
+    } catch (err) { fail(res, err); }
+  });
 
   // ── reads ──────────────────────────────────────────────────────────────────
 

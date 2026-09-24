@@ -324,3 +324,27 @@ describe('topology on the exact 0.001-wu grid (sloped, far-from-origin coordinat
     expect(codes(validateGeometry('polygon', touching))).toContain('hole_not_inside');
   });
 });
+
+describe('relateGeometryToPolygon (WP3 query classification)', () => {
+  const { relateGeometryToPolygon } = geo;
+  const target = poly(square(0, 0, 100), [square(40, 40, 20)]);
+
+  it.each([
+    ['a point in the interior', 'point', P(10, 10), 'inside'],
+    ['a point on the outer edge', 'point', P(0, 50), 'boundary'],
+    ['a point in a hole', 'point', P(50, 50), 'outside'],
+    ['a point outside', 'point', P(200, 0), 'outside'],
+    ['a line within the interior', 'linestring', ring([10, 10], [30, 10]), 'inside'],
+    ['a line crossing the outer edge', 'linestring', ring([90, 10], [110, 10]), 'boundary'],
+    ['a line touching a hole', 'linestring', ring([10, 40], [40, 40]), 'boundary'],
+    ['a line outside', 'linestring', ring([200, 0], [210, 0]), 'outside'],
+    ['a polygon within the interior', 'polygon', poly(square(5, 5, 10)), 'inside'],
+    ['a polygon surrounding a hole without touching it', 'polygon', poly(square(30, 30, 40)), 'boundary'],
+    ['a polygon covering the whole target', 'polygon', poly(square(-10, -10, 200)), 'boundary'],
+    ['a polygon sharing an edge', 'polygon', poly(square(100, 0, 10)), 'boundary'],
+    ['a polygon inside a hole', 'polygon', poly(square(45, 45, 5)), 'outside'],
+    ['a polygon apart', 'polygon', poly(square(300, 300, 5)), 'outside'],
+  ])('%s is %s', (_label, type, geometry, expected) => {
+    expect(relateGeometryToPolygon(type, geometry, target)).toBe(expected);
+  });
+});

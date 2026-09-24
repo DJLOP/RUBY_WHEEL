@@ -1,0 +1,1746 @@
+{
+  "format": "ruby_wheel.canonical_query_fixture",
+  "version": 1,
+  "ids": {
+    "city": 1,
+    "islandA": 1,
+    "islandB": 2,
+    "islandC": 3,
+    "canal": 4,
+    "basin": 5,
+    "bridge": 6,
+    "noBuild": 7,
+    "west": 2,
+    "westPair": 3,
+    "eastBoundary": 8,
+    "east": 4,
+    "artisan": 5,
+    "arboretum": 1,
+    "nodeA": 9,
+    "nodeB": 10,
+    "arena": 2,
+    "guildOffice": 3,
+    "guildHint": 11,
+    "lighthouse": 4,
+    "bridgeLink": 1,
+    "utility": 2,
+    "ferry": 3,
+    "draftIsland": 12,
+    "proposedWater": 13,
+    "retiredIsland": 14,
+    "draftScope": 6,
+    "draftAnchor": 5
+  },
+  "requests": {
+    "city": {
+      "scope_id": 1
+    },
+    "east": {
+      "scope_id": 4,
+      "halo_wu": 25
+    },
+    "islandA": {
+      "feature_id": 1,
+      "halo_wu": 60
+    }
+  },
+  "bundles": {
+    "city": {
+      "bundle_version": 1,
+      "scope": {
+        "ref": {
+          "type": "scope",
+          "id": 1
+        },
+        "kind": "city",
+        "scope_key": "city",
+        "name": "Imperial City",
+        "revision": 1,
+        "chain": [],
+        "extent": [
+          {
+            "outer": [
+              {
+                "x": 0,
+                "z": 0
+              },
+              {
+                "x": 500,
+                "z": 0
+              },
+              {
+                "x": 500,
+                "z": 100
+              },
+              {
+                "x": 0,
+                "z": 100
+              }
+            ],
+            "holes": []
+          }
+        ],
+        "extent_feature_ids": [],
+        "land_coverage": "partial",
+        "halo_wu": 0,
+        "descendant_scope_ids": [
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "digest": "237d37b5a5f4755986e29adedcced56c4a72e57d190e94135150d36e302029bb",
+      "water_complement": {
+        "rule": "partial",
+        "coverage_scope_id": null,
+        "extent": []
+      },
+      "readiness": {
+        "unplaced_must_exist": [
+          2
+        ],
+        "required_scope_unverified": [
+          11
+        ],
+        "enforced": false
+      },
+      "immutable": [
+        {
+          "entity_type": "scope",
+          "id": 1
+        },
+        {
+          "entity_type": "scope",
+          "id": 2
+        },
+        {
+          "entity_type": "scope",
+          "id": 3
+        },
+        {
+          "entity_type": "scope",
+          "id": 4
+        },
+        {
+          "entity_type": "scope",
+          "id": 5
+        },
+        {
+          "entity_type": "feature",
+          "id": 1
+        },
+        {
+          "entity_type": "feature",
+          "id": 2
+        },
+        {
+          "entity_type": "feature",
+          "id": 3
+        },
+        {
+          "entity_type": "feature",
+          "id": 4
+        },
+        {
+          "entity_type": "feature",
+          "id": 5
+        },
+        {
+          "entity_type": "feature",
+          "id": 6
+        },
+        {
+          "entity_type": "feature",
+          "id": 7
+        },
+        {
+          "entity_type": "feature",
+          "id": 9
+        },
+        {
+          "entity_type": "feature",
+          "id": 10
+        },
+        {
+          "entity_type": "feature",
+          "id": 11
+        },
+        {
+          "entity_type": "anchor",
+          "id": 1
+        },
+        {
+          "entity_type": "anchor",
+          "id": 2
+        },
+        {
+          "entity_type": "anchor",
+          "id": 3
+        },
+        {
+          "entity_type": "anchor",
+          "id": 4
+        },
+        {
+          "entity_type": "connection",
+          "id": 1
+        },
+        {
+          "entity_type": "connection",
+          "id": 2
+        },
+        {
+          "entity_type": "connection",
+          "id": 3
+        }
+      ],
+      "metrics": {
+        "semantics": "overlap_naive",
+        "extent": {
+          "polygons": 1,
+          "area_m2": 116128.8,
+          "area_ha": 11.61288
+        },
+        "land": {
+          "count": 3,
+          "area_m2": 69677.28,
+          "area_ha": 6.967728,
+          "shoreline_m": 1828.8
+        },
+        "water": {
+          "explicit_count": 2,
+          "explicit_area_m2": 6967.728,
+          "explicit_area_ha": 0.6967728
+        },
+        "protected": {
+          "count": 1,
+          "area_m2": 929.0304000000001,
+          "area_ha": 0.09290304
+        },
+        "routes": {
+          "count": 1,
+          "length_m": 76.2
+        },
+        "anchors": {
+          "placed": 2,
+          "context": 0,
+          "unplaced_obligations": 2,
+          "unplaced_must_exist": 1
+        }
+      },
+      "land": [
+        {
+          "id": 1,
+          "revision": 1,
+          "feature_class": "land",
+          "kind": null,
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 0,
+                "z": 0
+              },
+              {
+                "x": 100,
+                "z": 0
+              },
+              {
+                "x": 100,
+                "z": 100
+              },
+              {
+                "x": 0,
+                "z": 100
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 0,
+            "min_z": 0,
+            "max_x": 100,
+            "max_z": 100
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Isle A",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "boundary"
+        },
+        {
+          "id": 2,
+          "revision": 1,
+          "feature_class": "land",
+          "kind": null,
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 150,
+                "z": 0
+              },
+              {
+                "x": 250,
+                "z": 0
+              },
+              {
+                "x": 250,
+                "z": 100
+              },
+              {
+                "x": 150,
+                "z": 100
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 150,
+            "min_z": 0,
+            "max_x": 250,
+            "max_z": 100
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Isle B",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "boundary"
+        },
+        {
+          "id": 3,
+          "revision": 1,
+          "feature_class": "land",
+          "kind": null,
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 400,
+                "z": 0
+              },
+              {
+                "x": 500,
+                "z": 0
+              },
+              {
+                "x": 500,
+                "z": 100
+              },
+              {
+                "x": 400,
+                "z": 100
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 400,
+            "min_z": 0,
+            "max_x": 500,
+            "max_z": 100
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Isle C",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "boundary"
+        }
+      ],
+      "water": [
+        {
+          "id": 4,
+          "revision": 1,
+          "feature_class": "water",
+          "kind": "channel",
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 45,
+                "z": -10
+              },
+              {
+                "x": 55,
+                "z": -10
+              },
+              {
+                "x": 55,
+                "z": 110
+              },
+              {
+                "x": 45,
+                "z": 110
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 45,
+            "min_z": -10,
+            "max_x": 55,
+            "max_z": 110
+          },
+          "constraint_strength": "hard",
+          "attributes": {
+            "navigable": "yes"
+          },
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Canal",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "boundary",
+          "navigable": "yes"
+        },
+        {
+          "id": 5,
+          "revision": 1,
+          "feature_class": "water",
+          "kind": "basin",
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 110,
+                "z": 20
+              },
+              {
+                "x": 140,
+                "z": 20
+              },
+              {
+                "x": 140,
+                "z": 80
+              },
+              {
+                "x": 110,
+                "z": 80
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 110,
+            "min_z": 20,
+            "max_x": 140,
+            "max_z": 80
+          },
+          "constraint_strength": "soft",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Basin",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside",
+          "navigable": "unknown"
+        }
+      ],
+      "anchors": [
+        {
+          "id": 1,
+          "revision": 1,
+          "anchor_key": "arboretum",
+          "name": "arboretum",
+          "category": "network",
+          "constraint_strength": "hard",
+          "must_exist": true,
+          "required_scope_id": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "placed": true,
+          "relation": "inside",
+          "parts": [
+            {
+              "feature_id": 9,
+              "revision": 1,
+              "feature_class": "site",
+              "part_role": "node",
+              "constraint_strength": "hard",
+              "relation": "inside"
+            },
+            {
+              "feature_id": 10,
+              "revision": 1,
+              "feature_class": "site",
+              "part_role": "node",
+              "constraint_strength": "hard",
+              "relation": "inside"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "revision": 1,
+          "anchor_key": "arena",
+          "name": "arena",
+          "category": "landmark",
+          "constraint_strength": "hard",
+          "must_exist": true,
+          "required_scope_id": 2,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "placed": false,
+          "relation": "unplaced",
+          "parts": []
+        },
+        {
+          "id": 3,
+          "revision": 1,
+          "anchor_key": "guild-office",
+          "name": "guild office",
+          "category": "facility",
+          "constraint_strength": "hard",
+          "must_exist": true,
+          "required_scope_id": 5,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "placed": true,
+          "relation": "inside",
+          "parts": [
+            {
+              "feature_id": 11,
+              "revision": 1,
+              "feature_class": "site",
+              "part_role": "core",
+              "constraint_strength": "soft",
+              "relation": "inside"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "revision": 1,
+          "anchor_key": "lighthouse",
+          "name": "lighthouse",
+          "category": "landmark",
+          "constraint_strength": "hard",
+          "must_exist": false,
+          "required_scope_id": 4,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "placed": false,
+          "relation": "unplaced",
+          "parts": []
+        }
+      ],
+      "protected": [
+        {
+          "id": 7,
+          "revision": 1,
+          "feature_class": "protected_region",
+          "kind": "no_build",
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 160,
+                "z": 60
+              },
+              {
+                "x": 180,
+                "z": 60
+              },
+              {
+                "x": 180,
+                "z": 80
+              },
+              {
+                "x": 160,
+                "z": 80
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 160,
+            "min_z": 60,
+            "max_x": 180,
+            "max_z": 80
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside"
+        }
+      ],
+      "routes": [
+        {
+          "id": 6,
+          "revision": 1,
+          "feature_class": "route",
+          "kind": "bridge",
+          "geometry_type": "linestring",
+          "geometry": [
+            {
+              "x": 100,
+              "z": 90
+            },
+            {
+              "x": 150,
+              "z": 90
+            }
+          ],
+          "bbox": {
+            "min_x": 100,
+            "min_z": 90,
+            "max_x": 150,
+            "max_z": 90
+          },
+          "constraint_strength": "hard",
+          "attributes": {
+            "width_wu": 4
+          },
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Great Bridge",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside",
+          "crosses_water": false,
+          "leaves_land": true,
+          "crosses_extent_boundary": false
+        }
+      ],
+      "sites": [
+        {
+          "id": 9,
+          "revision": 1,
+          "feature_class": "site",
+          "kind": null,
+          "geometry_type": "point",
+          "geometry": {
+            "x": 20,
+            "z": 20
+          },
+          "bbox": {
+            "min_x": 20,
+            "min_z": 20,
+            "max_x": 20,
+            "max_z": 20
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": 1,
+          "part_role": "node",
+          "name": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside"
+        },
+        {
+          "id": 10,
+          "revision": 1,
+          "feature_class": "site",
+          "kind": null,
+          "geometry_type": "point",
+          "geometry": {
+            "x": 200,
+            "z": 20
+          },
+          "bbox": {
+            "min_x": 200,
+            "min_z": 20,
+            "max_x": 200,
+            "max_z": 20
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": 1,
+          "part_role": "node",
+          "name": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside"
+        },
+        {
+          "id": 11,
+          "revision": 1,
+          "feature_class": "site",
+          "kind": null,
+          "geometry_type": "point",
+          "geometry": {
+            "x": 230,
+            "z": 90
+          },
+          "bbox": {
+            "min_x": 230,
+            "min_z": 90,
+            "max_x": 230,
+            "max_z": 90
+          },
+          "constraint_strength": "soft",
+          "attributes": null,
+          "anchor_id": 3,
+          "part_role": "core",
+          "name": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside"
+        }
+      ],
+      "connections": [
+        {
+          "id": 1,
+          "revision": 1,
+          "connection_kind": "bridge",
+          "constraint_strength": "hard",
+          "name": null,
+          "from": {
+            "ref_type": "feature",
+            "ref_id": 1,
+            "hint": null,
+            "position": "in"
+          },
+          "to": {
+            "ref_type": "feature",
+            "ref_id": 2,
+            "hint": null,
+            "position": "in"
+          },
+          "via_feature_id": 6,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "tag": "internal"
+        },
+        {
+          "id": 2,
+          "revision": 1,
+          "connection_kind": "utility",
+          "constraint_strength": "soft",
+          "name": null,
+          "from": {
+            "ref_type": "feature",
+            "ref_id": 9,
+            "hint": null,
+            "position": "in"
+          },
+          "to": {
+            "ref_type": "feature",
+            "ref_id": 10,
+            "hint": null,
+            "position": "in"
+          },
+          "via_feature_id": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "tag": "internal"
+        },
+        {
+          "id": 3,
+          "revision": 1,
+          "connection_kind": "ferry",
+          "constraint_strength": "soft",
+          "name": null,
+          "from": {
+            "ref_type": "scope",
+            "ref_id": 2,
+            "hint": {
+              "x": 240,
+              "z": 50
+            },
+            "position": "in"
+          },
+          "to": {
+            "ref_type": "scope",
+            "ref_id": 4,
+            "hint": {
+              "x": 410,
+              "z": 50
+            },
+            "position": "in"
+          },
+          "via_feature_id": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "tag": "internal"
+        }
+      ]
+    },
+    "east": {
+      "bundle_version": 1,
+      "scope": {
+        "ref": {
+          "type": "scope",
+          "id": 4
+        },
+        "kind": "district",
+        "scope_key": "east",
+        "name": "east",
+        "revision": 1,
+        "chain": [
+          {
+            "id": 1,
+            "scope_key": "city",
+            "scope_kind": "city",
+            "name": "Imperial City",
+            "revision": 1,
+            "land_coverage": "partial"
+          }
+        ],
+        "extent": [
+          {
+            "outer": [
+              {
+                "x": 350,
+                "z": -50
+              },
+              {
+                "x": 550,
+                "z": -50
+              },
+              {
+                "x": 550,
+                "z": 150
+              },
+              {
+                "x": 350,
+                "z": 150
+              }
+            ],
+            "holes": []
+          }
+        ],
+        "extent_feature_ids": [
+          8
+        ],
+        "land_coverage": "complete",
+        "halo_wu": 25,
+        "descendant_scope_ids": []
+      },
+      "digest": "9a115489890f501baca6246f3b9eeee5cde6a989e3e9e9b869d9061154f80c20",
+      "water_complement": {
+        "rule": "complete",
+        "coverage_scope_id": 4,
+        "extent": [
+          {
+            "outer": [
+              {
+                "x": 350,
+                "z": -50
+              },
+              {
+                "x": 550,
+                "z": -50
+              },
+              {
+                "x": 550,
+                "z": 150
+              },
+              {
+                "x": 350,
+                "z": 150
+              }
+            ],
+            "holes": []
+          }
+        ]
+      },
+      "readiness": {
+        "unplaced_must_exist": [],
+        "required_scope_unverified": [],
+        "enforced": false
+      },
+      "immutable": [
+        {
+          "entity_type": "scope",
+          "id": 1
+        },
+        {
+          "entity_type": "scope",
+          "id": 4
+        },
+        {
+          "entity_type": "feature",
+          "id": 3
+        },
+        {
+          "entity_type": "feature",
+          "id": 8
+        },
+        {
+          "entity_type": "anchor",
+          "id": 4
+        },
+        {
+          "entity_type": "connection",
+          "id": 3
+        }
+      ],
+      "metrics": {
+        "semantics": "overlap_naive",
+        "extent": {
+          "polygons": 1,
+          "area_m2": 92903.04000000001,
+          "area_ha": 9.290304
+        },
+        "land": {
+          "count": 1,
+          "area_m2": 23225.760000000002,
+          "area_ha": 2.322576,
+          "shoreline_m": 609.6
+        },
+        "water": {
+          "explicit_count": 0,
+          "explicit_area_m2": 0,
+          "explicit_area_ha": 0
+        },
+        "protected": {
+          "count": 0,
+          "area_m2": 0,
+          "area_ha": 0
+        },
+        "routes": {
+          "count": 0,
+          "length_m": 0
+        },
+        "anchors": {
+          "placed": 0,
+          "context": 0,
+          "unplaced_obligations": 1,
+          "unplaced_must_exist": 0
+        }
+      },
+      "land": [
+        {
+          "id": 3,
+          "revision": 1,
+          "feature_class": "land",
+          "kind": null,
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 400,
+                "z": 0
+              },
+              {
+                "x": 500,
+                "z": 0
+              },
+              {
+                "x": 500,
+                "z": 100
+              },
+              {
+                "x": 400,
+                "z": 100
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 400,
+            "min_z": 0,
+            "max_x": 500,
+            "max_z": 100
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Isle C",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside"
+        }
+      ],
+      "water": [],
+      "anchors": [
+        {
+          "id": 4,
+          "revision": 1,
+          "anchor_key": "lighthouse",
+          "name": "lighthouse",
+          "category": "landmark",
+          "constraint_strength": "hard",
+          "must_exist": false,
+          "required_scope_id": 4,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "placed": false,
+          "relation": "unplaced",
+          "parts": []
+        }
+      ],
+      "protected": [],
+      "routes": [],
+      "sites": [],
+      "connections": [
+        {
+          "id": 3,
+          "revision": 1,
+          "connection_kind": "ferry",
+          "constraint_strength": "soft",
+          "name": null,
+          "from": {
+            "ref_type": "scope",
+            "ref_id": 2,
+            "hint": {
+              "x": 240,
+              "z": 50
+            },
+            "position": "out"
+          },
+          "to": {
+            "ref_type": "scope",
+            "ref_id": 4,
+            "hint": {
+              "x": 410,
+              "z": 50
+            },
+            "position": "in"
+          },
+          "via_feature_id": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "tag": "crossing"
+        }
+      ]
+    },
+    "islandA": {
+      "bundle_version": 1,
+      "scope": {
+        "ref": {
+          "type": "feature",
+          "id": 1
+        },
+        "kind": "island",
+        "name": "Isle A",
+        "revision": 1,
+        "chain": [
+          {
+            "id": 1,
+            "scope_key": "city",
+            "scope_kind": "city",
+            "name": "Imperial City",
+            "revision": 1,
+            "land_coverage": "partial"
+          },
+          {
+            "id": 2,
+            "scope_key": "west",
+            "scope_kind": "district",
+            "name": "west",
+            "revision": 1,
+            "land_coverage": "partial"
+          },
+          {
+            "id": 3,
+            "scope_key": "west-pair",
+            "scope_kind": "island_group",
+            "name": "west pair",
+            "revision": 1,
+            "land_coverage": "partial"
+          }
+        ],
+        "extent": [
+          {
+            "outer": [
+              {
+                "x": 0,
+                "z": 0
+              },
+              {
+                "x": 100,
+                "z": 0
+              },
+              {
+                "x": 100,
+                "z": 100
+              },
+              {
+                "x": 0,
+                "z": 100
+              }
+            ],
+            "holes": []
+          }
+        ],
+        "extent_feature_ids": [
+          1
+        ],
+        "land_coverage": "partial",
+        "halo_wu": 60,
+        "descendant_scope_ids": []
+      },
+      "digest": "2a263aed60ac2f5cd245d3c2740fa1f2f3f8a9783b6bcb29e55f1d7c44419741",
+      "water_complement": {
+        "rule": "partial",
+        "coverage_scope_id": null,
+        "extent": []
+      },
+      "readiness": {
+        "unplaced_must_exist": [
+          2
+        ],
+        "required_scope_unverified": [],
+        "enforced": false
+      },
+      "immutable": [
+        {
+          "entity_type": "scope",
+          "id": 1
+        },
+        {
+          "entity_type": "scope",
+          "id": 2
+        },
+        {
+          "entity_type": "scope",
+          "id": 3
+        },
+        {
+          "entity_type": "feature",
+          "id": 1
+        },
+        {
+          "entity_type": "feature",
+          "id": 2
+        },
+        {
+          "entity_type": "feature",
+          "id": 4
+        },
+        {
+          "entity_type": "feature",
+          "id": 5
+        },
+        {
+          "entity_type": "feature",
+          "id": 6
+        },
+        {
+          "entity_type": "feature",
+          "id": 7
+        },
+        {
+          "entity_type": "feature",
+          "id": 9
+        },
+        {
+          "entity_type": "feature",
+          "id": 10
+        },
+        {
+          "entity_type": "anchor",
+          "id": 1
+        },
+        {
+          "entity_type": "anchor",
+          "id": 2
+        },
+        {
+          "entity_type": "connection",
+          "id": 1
+        },
+        {
+          "entity_type": "connection",
+          "id": 2
+        },
+        {
+          "entity_type": "connection",
+          "id": 3
+        }
+      ],
+      "metrics": {
+        "semantics": "overlap_naive",
+        "extent": {
+          "polygons": 1,
+          "area_m2": 23225.760000000002,
+          "area_ha": 2.322576
+        },
+        "land": {
+          "count": 1,
+          "area_m2": 23225.760000000002,
+          "area_ha": 2.322576,
+          "shoreline_m": 609.6
+        },
+        "water": {
+          "explicit_count": 1,
+          "explicit_area_m2": 2787.0912,
+          "explicit_area_ha": 0.27870912
+        },
+        "protected": {
+          "count": 0,
+          "area_m2": 0,
+          "area_ha": 0
+        },
+        "routes": {
+          "count": 1,
+          "length_m": 76.2
+        },
+        "anchors": {
+          "placed": 1,
+          "context": 0,
+          "unplaced_obligations": 0,
+          "unplaced_must_exist": 1
+        }
+      },
+      "land": [
+        {
+          "id": 1,
+          "revision": 1,
+          "feature_class": "land",
+          "kind": null,
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 0,
+                "z": 0
+              },
+              {
+                "x": 100,
+                "z": 0
+              },
+              {
+                "x": 100,
+                "z": 100
+              },
+              {
+                "x": 0,
+                "z": 100
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 0,
+            "min_z": 0,
+            "max_x": 100,
+            "max_z": 100
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Isle A",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside"
+        },
+        {
+          "id": 2,
+          "revision": 1,
+          "feature_class": "land",
+          "kind": null,
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 150,
+                "z": 0
+              },
+              {
+                "x": 250,
+                "z": 0
+              },
+              {
+                "x": 250,
+                "z": 100
+              },
+              {
+                "x": 150,
+                "z": 100
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 150,
+            "min_z": 0,
+            "max_x": 250,
+            "max_z": 100
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Isle B",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "context"
+        }
+      ],
+      "water": [
+        {
+          "id": 4,
+          "revision": 1,
+          "feature_class": "water",
+          "kind": "channel",
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 45,
+                "z": -10
+              },
+              {
+                "x": 55,
+                "z": -10
+              },
+              {
+                "x": 55,
+                "z": 110
+              },
+              {
+                "x": 45,
+                "z": 110
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 45,
+            "min_z": -10,
+            "max_x": 55,
+            "max_z": 110
+          },
+          "constraint_strength": "hard",
+          "attributes": {
+            "navigable": "yes"
+          },
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Canal",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "boundary",
+          "navigable": "yes"
+        },
+        {
+          "id": 5,
+          "revision": 1,
+          "feature_class": "water",
+          "kind": "basin",
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 110,
+                "z": 20
+              },
+              {
+                "x": 140,
+                "z": 20
+              },
+              {
+                "x": 140,
+                "z": 80
+              },
+              {
+                "x": 110,
+                "z": 80
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 110,
+            "min_z": 20,
+            "max_x": 140,
+            "max_z": 80
+          },
+          "constraint_strength": "soft",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Basin",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "context",
+          "navigable": "unknown"
+        }
+      ],
+      "anchors": [
+        {
+          "id": 1,
+          "revision": 1,
+          "anchor_key": "arboretum",
+          "name": "arboretum",
+          "category": "network",
+          "constraint_strength": "hard",
+          "must_exist": true,
+          "required_scope_id": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "placed": true,
+          "relation": "boundary",
+          "parts": [
+            {
+              "feature_id": 9,
+              "revision": 1,
+              "feature_class": "site",
+              "part_role": "node",
+              "constraint_strength": "hard",
+              "relation": "inside"
+            },
+            {
+              "feature_id": 10,
+              "revision": 1,
+              "feature_class": "site",
+              "part_role": "node",
+              "constraint_strength": "hard",
+              "relation": "outside"
+            }
+          ]
+        }
+      ],
+      "protected": [
+        {
+          "id": 7,
+          "revision": 1,
+          "feature_class": "protected_region",
+          "kind": "no_build",
+          "geometry_type": "polygon",
+          "geometry": {
+            "outer": [
+              {
+                "x": 160,
+                "z": 60
+              },
+              {
+                "x": 180,
+                "z": 60
+              },
+              {
+                "x": 180,
+                "z": 80
+              },
+              {
+                "x": 160,
+                "z": 80
+              }
+            ],
+            "holes": []
+          },
+          "bbox": {
+            "min_x": 160,
+            "min_z": 60,
+            "max_x": 180,
+            "max_z": 80
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": null,
+          "part_role": null,
+          "name": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "context"
+        }
+      ],
+      "routes": [
+        {
+          "id": 6,
+          "revision": 1,
+          "feature_class": "route",
+          "kind": "bridge",
+          "geometry_type": "linestring",
+          "geometry": [
+            {
+              "x": 100,
+              "z": 90
+            },
+            {
+              "x": 150,
+              "z": 90
+            }
+          ],
+          "bbox": {
+            "min_x": 100,
+            "min_z": 90,
+            "max_x": 150,
+            "max_z": 90
+          },
+          "constraint_strength": "hard",
+          "attributes": {
+            "width_wu": 4
+          },
+          "anchor_id": null,
+          "part_role": null,
+          "name": "Great Bridge",
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "boundary",
+          "crosses_water": false,
+          "leaves_land": true,
+          "crosses_extent_boundary": true
+        }
+      ],
+      "sites": [
+        {
+          "id": 9,
+          "revision": 1,
+          "feature_class": "site",
+          "kind": null,
+          "geometry_type": "point",
+          "geometry": {
+            "x": 20,
+            "z": 20
+          },
+          "bbox": {
+            "min_x": 20,
+            "min_z": 20,
+            "max_x": 20,
+            "max_z": 20
+          },
+          "constraint_strength": "hard",
+          "attributes": null,
+          "anchor_id": 1,
+          "part_role": "node",
+          "name": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "relation": "inside"
+        }
+      ],
+      "connections": [
+        {
+          "id": 1,
+          "revision": 1,
+          "connection_kind": "bridge",
+          "constraint_strength": "hard",
+          "name": null,
+          "from": {
+            "ref_type": "feature",
+            "ref_id": 1,
+            "hint": null,
+            "position": "in"
+          },
+          "to": {
+            "ref_type": "feature",
+            "ref_id": 2,
+            "hint": null,
+            "position": "context"
+          },
+          "via_feature_id": 6,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "tag": "crossing"
+        },
+        {
+          "id": 2,
+          "revision": 1,
+          "connection_kind": "utility",
+          "constraint_strength": "soft",
+          "name": null,
+          "from": {
+            "ref_type": "feature",
+            "ref_id": 9,
+            "hint": null,
+            "position": "in"
+          },
+          "to": {
+            "ref_type": "feature",
+            "ref_id": 10,
+            "hint": null,
+            "position": "out"
+          },
+          "via_feature_id": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "tag": "crossing"
+        },
+        {
+          "id": 3,
+          "revision": 1,
+          "connection_kind": "ferry",
+          "constraint_strength": "soft",
+          "name": null,
+          "from": {
+            "ref_type": "scope",
+            "ref_id": 2,
+            "hint": {
+              "x": 240,
+              "z": 50
+            },
+            "position": "enclosing"
+          },
+          "to": {
+            "ref_type": "scope",
+            "ref_id": 4,
+            "hint": {
+              "x": 410,
+              "z": 50
+            },
+            "position": "out"
+          },
+          "via_feature_id": null,
+          "replacement_state": "non_replaceable",
+          "is_locked": false,
+          "tag": "external_obligation"
+        }
+      ]
+    }
+  },
+  "probes": {
+    "city": {
+      "classify": [
+        {
+          "x": 10,
+          "z": 10,
+          "expect": "land",
+          "why": "Isle A, away from the canal"
+        },
+        {
+          "x": 50,
+          "z": 50,
+          "expect": "water",
+          "why": "the canal: explicit water wins over land"
+        },
+        {
+          "x": 125,
+          "z": 50,
+          "expect": "water",
+          "why": "the basin"
+        },
+        {
+          "x": 125,
+          "z": 95,
+          "expect": "unknown",
+          "why": "between islands; city coverage is partial"
+        },
+        {
+          "x": 450,
+          "z": 50,
+          "expect": "land",
+          "why": "Isle C"
+        }
+      ],
+      "protected": [
+        {
+          "x": 170,
+          "z": 70,
+          "expect": true
+        },
+        {
+          "x": 10,
+          "z": 10,
+          "expect": false
+        }
+      ],
+      "footprints": [
+        {
+          "rect": {
+            "x": 10,
+            "z": 80,
+            "width": 4,
+            "depth": 4
+          },
+          "expect": []
+        },
+        {
+          "rect": {
+            "x": 170,
+            "z": 70,
+            "width": 4,
+            "depth": 4
+          },
+          "expect": [
+            "protected"
+          ]
+        },
+        {
+          "rect": {
+            "x": 20,
+            "z": 20,
+            "width": 2,
+            "depth": 2
+          },
+          "expect": [
+            "anchor_part"
+          ]
+        },
+        {
+          "rect": {
+            "x": 125,
+            "z": 60,
+            "width": 2,
+            "depth": 2
+          },
+          "expect": [
+            "off_land",
+            "in_water"
+          ]
+        },
+        {
+          "rect": {
+            "x": 125,
+            "z": 91,
+            "width": 2,
+            "depth": 2
+          },
+          "expect": [
+            "off_land",
+            "unknown_ground",
+            "hard_route"
+          ]
+        }
+      ]
+    },
+    "east": {
+      "classify": [
+        {
+          "x": 450,
+          "z": 50,
+          "expect": "land",
+          "why": "Isle C"
+        },
+        {
+          "x": 520,
+          "z": 50,
+          "expect": "water",
+          "why": "inside east, off land: coverage is complete"
+        },
+        {
+          "x": 600,
+          "z": 50,
+          "expect": "unknown",
+          "why": "outside the east extent"
+        }
+      ]
+    },
+    "islandA": {
+      "classify": [
+        {
+          "x": 10,
+          "z": 10,
+          "expect": "land"
+        },
+        {
+          "x": 50,
+          "z": 50,
+          "expect": "water"
+        },
+        {
+          "x": 125,
+          "z": 50,
+          "expect": "water",
+          "why": "the basin, as halo context"
+        },
+        {
+          "x": 125,
+          "z": 95,
+          "expect": "unknown"
+        }
+      ]
+    }
+  }
+}

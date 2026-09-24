@@ -181,7 +181,7 @@ export function AdminPanel({
   onRoadEraseModeChange,
   genExcludeRoads, setGenExcludeRoads, setRhombusState, setActiveSidebarMenu,
   editorGenParts, setEditorGenParts, editorGenType, setEditorGenType, editorStyleIndex, setEditorStyleIndex,
-  isCopyingSize, setIsCopyingSize, isAdmin, isPrimaryAdmin, setShowBattleMapManager, onOpenReferenceLayers,
+  isCopyingSize, setIsCopyingSize, isAdmin, isPrimaryAdmin, setShowBattleMapManager, onOpenReferenceLayers, onOpenCanonicalGeography,
   isPlantingTrees, setIsPlantingTrees, treeBatchSize, setTreeBatchSize, userName,
     isDeployingEnemy, setIsDeployingEnemy, isDeployingFriendly, setIsDeployingFriendly, handleSaveDefault, handleLoadDefault,
     tempCityMapScale, setTempCityMapScale, globalSettings, fetchGlobalSettings, tempBattleMapScale, setTempBattleMapScale, activeBattleMapData, setIsAdminPayOpen, setIsAdminXpOpen,
@@ -900,6 +900,12 @@ export function AdminPanel({
             <button className="utility-btn" style={{marginTop: '10px', width: '100%'}}
               onClick={() => { setSelectedLocation(null); onOpenReferenceLayers && onOpenReferenceLayers(); }}>
               + REFERENCE_LAYERS
+            </button>
+          )}
+          {isPrimaryAdmin && (
+            <button className="utility-btn" style={{marginTop: '10px', width: '100%'}}
+              onClick={() => { setSelectedLocation(null); onOpenCanonicalGeography && onOpenCanonicalGeography(); }}>
+              + CANONICAL_GEOGRAPHY
             </button>
           )}
           <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>

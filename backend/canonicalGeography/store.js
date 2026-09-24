@@ -32,6 +32,7 @@ const {
 const { validateAccept, validateRetire, findDependents } = require('./validation');
 const { invalid, notFound, conflict } = require('./errors');
 const { openTransactionConnection } = require('./connection');
+const { runQuery } = require('./query');
 
 const OPEN_STATES = ['draft', 'proposed'];
 
@@ -629,6 +630,14 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
     });
   };
 
+  // ── generator-facing query ─────────────────────────────────────────────────
+
+  /**
+   * POST /query — accepted canon only, read on the canonical connection inside the store
+   * queue, so a bundle never observes half of a canonical write.
+   */
+  const query = (body) => readOnly((q) => runQuery(q, body));
+
   return {
     /** The connection canonical transactions run on, and whether it is separate from the app's. */
     connection: db,
@@ -653,6 +662,7 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
     restore,
     setLock,
     setReplacement,
+    query,
   };
 }
 

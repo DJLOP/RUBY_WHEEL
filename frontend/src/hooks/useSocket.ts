@@ -22,6 +22,8 @@ interface UseSocketOptions {
   onFetchOverpasses?: () => void;
   onFetchSigns?: () => void;
   onFetchReferenceLayers?: () => void;
+  /** Canonical geography changed (a `dataUpdated` carrying `canonicalGeography: true`). */
+  onFetchCanonicalGeography?: () => void;
   onFetchBattleMaps?: () => void;
   onViewSettingsUpdate?: (settings: { renderSignage: boolean; signageDensity: number; renderSidewalks: boolean }) => void;
   onBankUpdate: (balance: number, debt: number, firstPayDone?: boolean, highRollerDone?: boolean) => void;
@@ -59,7 +61,7 @@ interface UseSocketOptions {
 
 export function useSocket({
   userName, token, playerToken, isLoggedIn, isSpectator, notificationsEnabled, isChatOpen,
-  onFetchAll, onFetchGlobalSettings, onFetchLocations, onFetchRoads, onFetchDistricts, onFetchWaterBodies, onFetchOverpasses, onFetchSigns, onFetchReferenceLayers, onFetchBattleMaps, onViewSettingsUpdate,
+  onFetchAll, onFetchGlobalSettings, onFetchLocations, onFetchRoads, onFetchDistricts, onFetchWaterBodies, onFetchOverpasses, onFetchSigns, onFetchReferenceLayers, onFetchCanonicalGeography, onFetchBattleMaps, onViewSettingsUpdate,
   onBankUpdate, onBalancePaid, onNotification, onHasUnreadChat, onTokenUpdate, onIsAdminUpdate,
   onRegistrationPending, onRegistrationUpdated,
   onPasswordResetRequested, onPasswordResetResolved,
@@ -115,7 +117,7 @@ export function useSocket({
       onFetchGlobalSettings?.();
     });
 
-    newSocket.on('dataUpdated', (payload: { isRhombusOnly?: boolean }) => {
+    newSocket.on('dataUpdated', (payload: { isRhombusOnly?: boolean; canonicalGeography?: boolean }) => {
       onFetchLocations();
       onFetchRoads();
       onFetchDistricts();
@@ -132,6 +134,11 @@ export function useSocket({
         // move for a collection that changes when an admin presses Apply.
         onFetchReferenceLayers?.();
       }
+      // Only the canonical-geography routes set this flag, and nothing else changes that
+      // data. At city scale it is megabytes, so it is not refetched on the constant
+      // inherited broadcasts. (Like every collection here, a broadcast missed while
+      // disconnected is picked up by the next full load, not replayed.)
+      if (payload?.canonicalGeography) onFetchCanonicalGeography?.();
     });
 
     newSocket.on('viewSettingsUpdated', (settings: { renderSignage: boolean; signageDensity: number; renderSidewalks: boolean }) => {

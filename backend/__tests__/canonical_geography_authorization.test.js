@@ -114,6 +114,9 @@ describe('the primary world editor', () => {
       const res = await call(api, m);
       expect([200, 201], `${m[0]} ${m[1]} → ${res.status} ${JSON.stringify(res.body).slice(0, 120)}`).toContain(res.status);
       expect(emits).toHaveLength(1);
+      // Flagged, so clients refetch canonical geography on this broadcast and not on every
+      // inherited one (WP4 realtime wiring).
+      expect(emits[0]).toEqual({ canonicalGeography: true });
     }
   });
 
