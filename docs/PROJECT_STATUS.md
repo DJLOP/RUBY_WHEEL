@@ -2,7 +2,7 @@
 
 **Status date:** 2026-09-25  
 **Current implementation branch:** `feature/canonical-geography`  
-**Latest pushed accepted implementation commit:** `0882790` — Add canonical geography tracing and editing (WP5)  
+**Latest pushed accepted implementation commit:** `59ca91d` — Add canonical geography anchors scopes and connections (WP6)  
 **Canonical-geography plan baseline commit:** `2eaff3e` — Approve canonical geography implementation plan  
 **Requirements/architecture baseline commit:** `8f02ed4` — Define generation hierarchy and canonical city scale  
 **Imperial City generation bible commit:** `2b446c2` — Add Imperial City generation bible  
@@ -22,8 +22,8 @@
 - `CLAUDE.md` is only a thin bootstrap pointing Claude to `AGENTS.md`.
 - The persistent calibrated reference-layer slice is complete, human-accepted, merged to `main`, and pushed.
 - `docs/CANONICAL_GEOGRAPHY_PLAN.md` is approved and committed (`2eaff3e`).
-- Canonical Geography WP1–WP5 are complete, reviewed, human-accepted, committed, and pushed on `feature/canonical-geography`.
-- Canonical Geography WP6 — anchors, connections, scopes, map selection, context inspection, and recoverable retirement — is implemented, automated-validation green, human-accepted, and Sol-reviewed clean after a final retirement/recoverability remediation. It is currently **uncommitted**.
+- Canonical Geography WP1–WP6 are complete, reviewed, human-accepted, committed, and pushed on `feature/canonical-geography`. WP6 — anchors, connections, scopes, map selection, context inspection, and recoverable retirement — is commit `59ca91d` (`Add canonical geography anchors scopes and connections`).
+- A documentation-only post-WP6 architecture amendment is in progress (see Immediate Objective).
 - WP7 has not started.
 
 ## Primary Product Objective
@@ -93,7 +93,7 @@ The approved capability establishes a governed, versioned canonical spatial subs
 - **WP4 — Data wiring and rendering:** complete and accepted.
 - **WP3–WP4 pushed checkpoint:** commit `7e91644` (`Add canonical geography query and rendering`).
 - **WP5 — Tracing and feature editing:** complete, human-accepted, Sol-reviewed, committed and pushed as `0882790` (`Add canonical geography tracing and editing`).
-- **WP6 — Anchors, connections, scopes UI:** implementation complete, human-accepted, final Sol review/recheck clean; changes remain uncommitted.
+- **WP6 — Anchors, connections, scopes UI:** complete, human-accepted, Sol-reviewed clean, committed and pushed as `59ca91d` (`Add canonical geography anchors scopes and connections`).
 - **WP7 — Import/export, legacy promotion, Bible-derived initial register, final verification:** not started.
 
 ### Canonical-geography capability now available through WP6
@@ -169,12 +169,12 @@ Human browser acceptance verified, among other things:
 - anchor placement and placed/unplaced behavior work in the UI;
 - retired canon is hidden from normal work but remains recoverable through archive/restore.
 
-A final Sol review found one HIGH blocker: retired anchors, scopes, and connections could become unreachable in the UI. That was remediated with archive/restore access matching the feature recoverability model. Sol's bounded recheck closed the finding and reported WP6 safe to accept, commit, and proceed to the documentation amendment.
+A final Sol review found one HIGH blocker: retired anchors, scopes, and connections could become unreachable in the UI. That was remediated with archive/restore access matching the feature recoverability model. Sol's bounded recheck closed the finding and reported WP6 safe to accept, commit, and proceed to the documentation amendment. WP6 was then committed and pushed as `59ca91d`.
 
 
 ## Post-Reference-Layer Design Direction
 
-These decisions are recorded authoritatively as R-006, R-007, R-025 in `docs/REQUIREMENTS.md` and A-015–A-017 in `docs/ARCHITECTURE.md` (committed `8f02ed4`); those documents govern if this summary differs.
+These decisions are recorded authoritatively as R-006, R-007, R-011, R-013, R-014, R-025, R-026, R-031 in `docs/REQUIREMENTS.md` and A-015–A-020 in `docs/ARCHITECTURE.md` (baseline `8f02ed4`, amended post-WP6); those documents govern if this summary differs.
 
 Generation-facing work must preserve the following decisions:
 
@@ -189,17 +189,12 @@ Generation-facing work must preserve the following decisions:
   - **ordinary urban fabric** — freely procedural unless intentionally promoted to canon.
 - Existing raster roads, bridges, walls, gates, docks/quays, and similar marks are evidence of intent unless specifically promoted to canonical normalized geometry.
 - Ordinary streets/buildings visible in the raster are not canonical merely because they were hand-drawn.
-- Generation should remain hierarchical, but WP6 human use exposed an important refinement that must be documented before WP7:
-  - city strategy and district program remain persistent strategic layers;
-  - `island_group` is useful as an optional persistent semantic scope when the world genuinely has such a grouping, but it should **not** be a mandatory generation tier;
-  - routine generation should instead support demand-created **generation worksets/batches**: arbitrary selected land generated together while reading district requirements above and already-generated district state sideways;
-  - physical islands and administrative districts are independent geometries; future generation may need derived `island ∩ district` land pieces where a district boundary cuts an island;
-  - island/block/building detail remains lower-level work.
+- Generation remains hierarchical, amended after WP6 human use (R-011, R-013, R-025, R-026; A-017–A-019): city strategy and district program are persistent strategic layers; demand-created generation worksets/batches execute below them, inheriting district requirements and reading prior generated/accepted district state and unfulfilled requirements; `island_group` is an optional semantic scope, not a generation tier; districts and physical islands are independent geometries, with derived `island ∩ district` pieces where needed; island/block/building detail remains lower-level work.
 - Higher levels should primarily produce roles, obligations, budgets, relationships, ranges, weights, and priorities; lower levels should produce geometry/detail.
 - Lower-level feasibility must be able to feed back upward rather than forcing impossible allocations.
-- District planning should later support multiple density/intensity nodes rather than one flat density value, including city-center pull and district-specific centers such as administrative compounds.
+- District planning should later support multiple density/intensity nodes with falloff rather than one flat density value, including city-center pull and district-specific centers (R-031, ARCHITECTURE §8).
 - Ordinary urban fabric should remain lightweight; selected structures may later be promoted into semantic POIs.
-- A future canonical-geometry authoring aid should support exact parametric radial/spoke walls from a chosen center between accepted inner/outer boundaries; this is deterministic construction tooling, not procedural city generation.
+- A future canonical-geometry authoring aid should support exact parametric radial/spoke walls from a chosen center between accepted inner/outer boundaries; this is deterministic construction tooling, not procedural city generation (R-014, A-020).
 
 ## Known Physical Scale
 
@@ -215,17 +210,9 @@ The current Imperial City reference layer was explicitly corrected to the canoni
 
 ## Immediate Objective
 
-Close the human-accepted WP6 checkpoint in Git, then make a **documentation-only architecture amendment before WP7**.
+Complete, review, and separately commit the **documentation-only post-WP6 architecture amendment** before WP7.
 
-The amendment should record the lessons established during real WP6 use:
-
-- districts are persistent drawn spatial regions and may cut across physical islands;
-- physical island geometry does not imply a strict District → Island ownership hierarchy;
-- `island_group` remains available as an optional semantic scope, not a required generation layer;
-- future procedural work should introduce demand-created generation worksets/batches that inherit district requirements and see previously generated district state;
-- future whole-island generation may operate on derived district/island intersections;
-- district planning should later support multiple density/intensity nodes and falloff;
-- deterministic radial/spoke-wall construction is a desired canonical-geometry authoring tool.
+The amendment reconciles `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/CANONICAL_GEOGRAPHY_PLAN.md`, and this file with the lessons of real WP6 use: independent district/island geometry and derived intersections; optional island groups; demand-created generation worksets/batches with district fulfillment awareness; spatially varying district intensity; and a deterministic radial/spoke-wall authoring aid. It changes no code and does not alter WP7 scope.
 
 WP7 remains responsible for interchange import/export, legacy promotion, the Bible-derived `docs/canonical/initial_register.v1.json`, and final end-to-end verification.
 
@@ -248,12 +235,12 @@ Do not yet implement:
 
 ## Next Planned Repository Step
 
-1. Commit the human-accepted WP6 implementation and this status update on `feature/canonical-geography`.
-2. Push the WP6 checkpoint.
-3. Make and review a documentation-only amendment covering optional island groups, generation worksets/batches, district/island intersections, density nodes, and the future radial-wall construction aid.
-4. Commit/push that documentation amendment separately.
-5. Only then decide whether to proceed directly to WP7 or insert a very small canonical-geometry authoring-tools slice for the radial/spoke-wall constructor.
-6. Keep the noted CITY_NET upstream update out of unfinished WP6/WP7 work; evaluate upstream sync/contribution strategy at a stable checkpoint.
+1. Human review of the post-WP6 documentation amendment.
+2. Commit and push the amendment separately on `feature/canonical-geography` (only when the user authorizes the commit).
+3. Then make an explicit human decision between:
+   - **A.** proceed directly to WP7; or
+   - **B.** insert a small canonical-geometry authoring-tools slice for the deterministic radial/spoke-wall constructor (R-014, A-020) before WP7.
+4. Keep the noted CITY_NET upstream update parked; evaluate upstream sync/contribution strategy only at a stable checkpoint.
 
 Implementation must not move back to `main` mid-slice.
 

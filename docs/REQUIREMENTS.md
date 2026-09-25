@@ -200,6 +200,16 @@ Its geography must be usable for:
 - lore association;
 - generation-profile assignment.
 
+District geography is a persistent drawn spatial region. It is independent of physical island geography:
+
+- a district boundary may cut through a physical island, so one island may lie partly in several districts;
+- a district is not defined as a set of whole islands, and there is no strict District → Island ownership hierarchy;
+- explicit whole-island district membership may exist only as optional metadata or convenience; it never defines a district's authoritative spatial extent;
+- a district's authoritative spatial extent comes only from its accepted drawn boundary, so a district with no accepted boundary has no authoritative spatial extent;
+- later work may derive `island geometry ∩ district geometry` land pieces where it needs them, only from authoritative (accepted-boundary) district geometry, rather than requiring the user to author manually split island features.
+
+Physical islands are identified by accepted land geometry, not by district or grouping records.
+
 ## R-012 — Subregions Must Override District Defaults
 
 A district must be capable of containing smaller planning or generation regions.
@@ -216,6 +226,28 @@ Examples include:
 
 Subregions must be able to override appropriate district generation settings without requiring a new district.
 
+## R-013 — Island Groups Are Optional Semantic Geography
+
+A named island group, island chain, or archipelago may be represented as a persistent semantic scope when such a grouping genuinely exists in the world (for example, a named island chain in the generation bible).
+
+Island groups are optional. They are not a mandatory procedural-generation tier, and generation must not require every island to belong to an island group before it can be planned or generated.
+
+## R-014 — Canonical Geometry Authoring Must Support Deterministic Parametric Construction
+
+Canonical-geometry authoring tools must be able to construct regular geometry exactly from parameters rather than only by freehand vertex placement, so that imperfect raster drawing does not become canonical (R-006).
+
+A desired future authoring aid is a deterministic radial/spoke constructor, for example for radial walls. Conceptually it takes:
+
+- a canonical center point;
+- an accepted inner boundary or ring;
+- an accepted outer boundary or ring;
+- a spoke count `N`;
+- an angular offset `θ₀`;
+
+and, for each `n = 0 … N−1`, casts a ray from the center at `θₙ = θ₀ + n · (360° / N)` and intersects it with the actual accepted inner and outer boundaries to produce the spoke geometry.
+
+This is deterministic canonical-geometry construction. It is not procedural city generation and does not require AI. Its output is ordinary normalized canonical geometry and follows the normal draft → explicit accept lifecycle.
+
 # 5. Procedural Urban Completion Requirements
 
 ## R-020 — Generation Must Operate Locally
@@ -231,7 +263,8 @@ Useful generation scales should include:
 - island;
 - neighborhood;
 - district subsection;
-- district.
+- district;
+- a generation workset/batch of selected land (R-026).
 
 ## R-021 — Generation Must Build Around Existing Work
 
@@ -281,19 +314,39 @@ Accepted output must also be capable of becoming protected or locked against acc
 City completion follows a conceptual hierarchy:
 
 ```text
-City strategy
-  → District program
-  → Island-group / island-chain allocation
-  → Island morphology
+City strategy                         (persistent strategic layer)
+  → District program                  (persistent strategic layer)
+  → Generation workset / batch        (demand-created execution unit)
+  → Island / land-piece morphology
   → Local block / quarter refinement
   → POI promotion / detailed authoring
 ```
+
+City strategy and district program are persistent strategic planning layers. Generation worksets/batches (R-026) are created on demand below district planning to execute generation over selected land. Island, block, building, and POI work remain lower-level detail.
+
+Island groups (R-013) are optional semantic geography, not a required stage of this hierarchy. A workset may cover land that happens to form a named island group, but no island-group allocation step is mandatory.
 
 Higher levels allocate roles, constraints, obligations, budgets, relationships, ranges, weights, and priorities. Lower levels produce geometry and detail.
 
 Lower-level feasibility must be able to feed back upward rather than forcing geometrically impossible allocations.
 
 This hierarchy is an architectural direction. It does not require all levels to be implemented at once.
+
+## R-026 — Generation Runs in Demand-Created Worksets That Know District Fulfillment
+
+Routine procedural generation must be able to operate on demand-created **generation worksets** (also called generation batches).
+
+A generation workset:
+
+- is an execution/planning construct, not necessarily an in-world geographic entity;
+- may contain arbitrary selected land that is appropriate to generate together, such as selected whole islands or derived district/island land pieces (R-011);
+- inherits the district-level requirements and program constraints of the district(s) its land lies in;
+- reads previously generated and accepted state in those districts;
+- knows which district requirements remain unfulfilled.
+
+Later batches must therefore be able to avoid duplicating facilities or roles that earlier batches in the same district have already satisfied, and to take account of requirements that remain unfulfilled.
+
+This requires conceptual district requirement/fulfillment state that a workset can read. Its persistence form is intentionally not decided by this requirement.
 
 # 6. District and Urban Profile Requirements
 
@@ -323,6 +376,14 @@ Generation profiles should be capable of describing, at minimum:
 - architecture/archetype palette.
 
 Not every field must exist in the first implementation, but the architecture must permit these concepts without redesigning the generator.
+
+Development density/intensity must not be limited to one flat district-wide value. District planning must be able to express spatially varying intensity, for example:
+
+- multiple density/intensity nodes, each with a falloff;
+- a citywide pull toward the city center coexisting with district-specific centers (such as an administrative compound or market core);
+- later, barriers or connectivity (water, walls, crossings) that modify how intensity spreads.
+
+This records the requirement only; the representation and falloff model are not decided here.
 
 ## R-032 — Profiles Must Support Mixed-Use Districts
 
@@ -725,7 +786,7 @@ The target city-building workflow is:
 5. Define persistent districts and subregions.
 6. Mark protected authored work.
 7. Assign generation profiles.
-8. Select an unfinished area.
+8. Select an unfinished area as a generation workset (R-026).
 9. Procedurally generate urban fabric.
 10. Inspect and edit.
 11. Regenerate selected portions if needed.

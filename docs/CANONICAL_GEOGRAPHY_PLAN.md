@@ -4,6 +4,8 @@
 **Baseline:** `main` at `2b446c2` (Add Imperial City generation bible).
 **Governing documents:** `docs/REQUIREMENTS.md` (R-002, R-005–R-007, R-010–R-012, R-020–R-025, R-050, R-090–R-093, R-100–R-101), `docs/ARCHITECTURE.md` (A-001–A-017, §7, §8, §14, §15, §21, §22, §24, §31). `docs/IMPERIAL_CITY_GENERATION_BIBLE.md` (the "Bible") is the authoritative human-readable world specification. It supplies the initial must-exist hard-anchor set (§9) and the district/world context used here (§1, §3, §4, §8). It does not override the requirements or architecture.
 
+**Post-WP6 amendment.** WP6 human use established that districts are drawn spatial regions independent of physical islands, that island groups are optional semantic scopes rather than a generation tier, and that future generation runs through demand-created generation worksets/batches. These are recorded authoritatively in `docs/REQUIREMENTS.md` (R-011, R-013, R-014, R-025, R-026, R-031) and `docs/ARCHITECTURE.md` (A-017–A-020, §8, §9). This plan is reconciled with them in §3.5, §6, §9, and §13. The WP1–WP6 schema and behavior are unchanged, and WP7 scope is unchanged.
+
 ## 1. Goal and completion criteria
 
 Establish persistent, structured, explicitly accepted canonical spatial constraints — land, major water, hard/soft anchors, protected regions, canonical linear/connective features, required connections, and hierarchical spatial scopes — that later planners and generators can query without touching raster evidence.
@@ -15,7 +17,7 @@ The capability is complete when:
 - Accepted records carry explicit provenance, constraint strength, replacement state, lock state, and revision history, and cannot be silently overwritten, deleted, or auto-replaced.
 - The Bible §9 must-exist hard anchors can be registered (placed or not yet placed), composed of one or more geometric parts (points, footprints, precincts, linear parts, network nodes/links), inspected, and never made automatically replaceable. The register is imported from a Bible-derived document and accepted by the GM, not re-typed by hand.
 - Generator queries report which must-exist hard anchors in a scope are still unplaced. This makes the Bible §9 rule "represented before ordinary procedural generation is allowed to replace surrounding fabric" checkable by the later generation slice.
-- Spatial scopes (city → district → island group → subregion; islands are land features) persist with parent/containment relationships.
+- Spatial scopes (supported kinds ranked city → district → island group → subregion; islands are land features) persist with parent/containment relationships. The rank orders scope parentage; it does not make `island_group` a mandatory generation stage (see §3.5).
 - A generator-facing query returns, for any scope, bounding box, polygon, or island, the accepted land, water, anchors, protected regions, routes, and boundary-crossing connections, plus a deterministic canonical-input digest.
 - Physical scale (1 wu = 1.524 m) is preserved and independent of the inherited `GLOBAL MAP SCALE` setting.
 - Legacy saved-map load/clear, region purge, inherited undo, and reference-layer edits cannot alter canonical geography.
@@ -168,11 +170,19 @@ Some canon is a relationship rather than a shape: "a bridge must connect these t
 
 **Islands are first-class as accepted `land` features** (stable id, optional name, revision), not as a separate table or scope row. Queries accept an island (`feature_id`) as a scope. This gives islands identity now without making them independent generation units (§6.4).
 
-**Scope extent** is defined as follows. If `boundary_feature_id` is set, the extent is that polygon. Otherwise it is the set of member land polygons, and for `city` with neither, the bbox of all accepted land. A multi-polygon extent is always handled as a *set* of polygons, so no union operation is ever required.
+**Scope extent** is defined as follows. If `boundary_feature_id` is set, the extent is that polygon. Otherwise it is the set of member land polygons, and for `city` with neither, the bbox of all accepted land. A multi-polygon extent is always handled as a *set* of polygons, so no union operation is ever required. (Post-WP6: the member-polygon fallback is retained as implemented, but it is a legacy query/selection convenience only and not authoritative district geometry; see the clarification below.)
 
 Migration `002` inserts exactly one root scope: `scope_key='city'`, `scope_kind='city'`, name `Imperial City`, `accepted`, `authored`, `non_replaceable`, unlocked. This is structural (A-001: one canonical world). The migration seeds no district, island, or anchor data, and seed data never depends on migrations.
 
 The Bible's district set (§2.4) is instead delivered as part of a Bible-derived register document (§8.3, WP7). It contains `district` scopes by key and name, with no geometry, and is imported as drafts for GM acceptance. The Bible names the Agrarian Estates an island *chain* and the Prison / Legion Headquarters complex an outer district. Both are `district` scopes that may later contain `island_group` children. The substrate does not decide whether a district is "inner" or "outer". That is a strategy-level attribute for the next slice.
+
+**Post-WP6 clarification (accepted WP6 behavior).**
+
+- `city`, `district`, `island_group`, and `subregion` are the supported semantic scope kinds, and their rank governs only valid parentage. `island_group` is an optional scope for a genuine named grouping (for example, an island chain). It is not a mandatory planning or generation tier, and no island needs an island group.
+- A district's authoritative spatial extent comes only from its accepted drawn boundary (`boundary_feature_id`). A district with no accepted boundary has no authoritative spatial extent. Explicit whole-island membership (`geo_scope_members`) is metadata/convenience only and never defines authoritative district extent.
+- The current implementation still resolves a member-polygon extent for a boundaryless scope in its query and accept-time validation paths. That behavior is unchanged, but it is a legacy query/selection convenience only: it is not canonical district geometry, future district planning/generation must not interpret it as authoritative district extent, and it must not recreate a District → Island ownership model.
+- One island may spatially intersect several district boundaries. The `UNIQUE(feature_id, scope_kind)` constraint limits only *explicit whole-island membership*; it does not limit spatial intersection, and the query already returns land that a district boundary cuts as `boundary` land.
+- Accepted `land` polygons remain the physical island identity. Districts and islands are independent geometries (A-019), and later generation may derive `island ∩ district` pieces, only from authoritative (accepted-boundary) district geometry, rather than requiring manually split island features.
 
 Scopes carry **no** generation-profile, culture, crop, or wealth fields. Machine-readable profiles derived from the Bible (Bible §8) attach to scopes by id in later slices.
 
@@ -197,7 +207,7 @@ Scopes carry **no** generation-profile, culture, crop, or wealth fields. Machine
 | `route` | linestring (open or closed) | `wall`, `bridge`, `causeway`, `road`, `quay_edge`, `conduit`, `other` | `width_wu`, `crosses_water` (derived) | Canonically important linear/connective geometry: exterior wall ring, fixed bridges, canonical major roads, quay lines, fixed conduits. |
 | `protected_region` | polygon | `no_build`, `preserve_existing`, `reserved` | — | Regions generators must not build into or must leave as-is, independent of anchors. |
 | `site` | point, linestring, or polygon | — | — | Anchor geometry that is neither land, water, nor a route: footprints, precincts, compound boundaries, network nodes, gates as points. |
-| `scope_boundary` | polygon | — | — | Explicit boundary for a district/island-group/subregion scope whose extent is not whole islands. |
+| `scope_boundary` | polygon | — | — | Explicit boundary for a district/island-group/subregion scope whose extent is not whole islands. Post-WP6: for a district, this is the only authoritative spatial extent (§3.5). |
 
 Validation (backend, pure JS module, no new dependency):
 
@@ -346,7 +356,7 @@ This matches the Bible §8 pipeline: *Bible → machine-readable culture/distric
 
 ### 6.2 How planners query a requested scope
 
-Every hierarchy level asks the same question at a different scope: "give me the accepted constraints within scope *S* (with halo *h*)." City strategy queries the `city` scope. A district program queries a `district`. Island-group allocation queries an `island_group` or a candidate set of islands. Island morphology queries a land `feature_id` with a halo. Block refinement queries a `polygon`. The answers to the task's example questions map onto the bundle as follows:
+Every hierarchy level asks the same question at a different scope: "give me the accepted constraints within scope *S* (with halo *h*)." City strategy queries the `city` scope. A district program queries a `district`. A generation workset queries its selected islands or land pieces (for example as a `polygon` or a set of `feature_id`s), and may query an `island_group` where one genuinely exists. Island morphology queries a land `feature_id` with a halo. Block refinement queries a `polygon`. The answers to the task's example questions map onto the bundle as follows:
 
 | Question | Bundle source |
 | --- | --- |
@@ -367,12 +377,12 @@ Every hierarchy level asks the same question at a different scope: "give me the 
 
 - An island is a land feature. The unit of generation is a **scope request**, not an island record.
 - Every island query carries its ancestor chain, halo context (neighboring islands, shared channels, bridges), and `crossing` connections, so no island can be generated without its cross-boundary obligations.
-- Island groups are scopes with membership. A pilot can therefore target a small group as one unit, and a bridge between two members appears as an `internal` connection rather than two dangling ends.
+- A pilot can target several islands as one unit, and a bridge between two of them appears as an `internal` connection rather than two dangling ends. Post-WP6, that unit is a demand-created generation workset (A-018) rather than a mandatory island-group scope. An accepted island group may still serve as a convenient selection where one genuinely exists.
 - Nothing in the schema stores per-island generation settings, profiles, or seeds. Those belong to future planning/generation-run records that reference scopes.
 
 ### 6.5 How strategic outputs reference geography without embedding it
 
-Future planning records (city strategy, district program, island-group allocation) store `{scope_id | feature_id | anchor_id, revision, digest}` references plus roles, budgets, weights, and obligations. For example, the Bible's Arcane district-level productive-land weights (§5.3) would be a district-program record referencing the Arcane `district` scope. They never copy geometry. Staleness is detectable: if a referenced entity's `revision` or the scope `digest` changes, the plan is flagged for re-evaluation. **Feasibility feedback** can use `metrics` (for example, allocated budget versus measured land area and shoreline length) and `footprintConflicts` without new schema. This is the upward rejection path the Bible describes for crops on unsuitable parcels (§5.3). Richer feasibility records belong to the planning slice.
+Future planning records (city strategy, district program, and the generation worksets/batches below them) store `{scope_id | feature_id | anchor_id, revision, digest}` references plus roles, budgets, weights, and obligations. For example, the Bible's Arcane district-level productive-land weights (§5.3) would be a district-program record referencing the Arcane `district` scope. They never copy geometry. Staleness is detectable: if a referenced entity's `revision` or the scope `digest` changes, the plan is flagged for re-evaluation. **Feasibility feedback** can use `metrics` (for example, allocated budget versus measured land area and shoreline length) and `footprintConflicts` without new schema. This is the upward rejection path the Bible describes for crops on unsuitable parcels (§5.3). Richer feasibility records belong to the planning slice.
 
 ### 6.6 How local generators inherit both constraint sources
 
@@ -504,7 +514,7 @@ The interchange document is `{format: 'ruby_wheel.canonical_geography', version:
 ## 9. Explicit non-goals
 
 - Full-raster vectorization, computer vision, color interpretation, automatic coastline cleaning, or automatic road/building reconstruction.
-- City strategy, district programs, island-group allocation, island morphology, block/lot/building/street generation, cultural components, cuisine, or agriculture generation.
+- City strategy, district programs, generation worksets/batches, district fulfillment state, district density/intensity models, island morphology, block/lot/building/street generation, cultural components, cuisine, or agriculture generation.
 - Wiring canonical constraints into `generateCity`, the inherited generator panel, or purge. That is the pilot slice.
 - Generation-run tables, planning/feasibility records, or an AI synthesis implementation (only the `/proposals` seam exists).
 - A polygon boolean/clipping library, buffering, multipolygon geometry, elevation/terrain, or 3D bridge decks.
@@ -625,24 +635,26 @@ Interchange import (world and source-pixel modes, dry run), legacy-water promoti
 - canonical linear features (walls, fixed bridges, quays, conduits, major roads);
 - a must-exist anchor register, holding the Bible §9 anchors from a Bible-derived document, whose entries are placed through composite point, line, and polygon parts (including infrastructure networks) and are never automatically replaceable;
 - required-connection obligations;
-- a city → district → island group → subregion scope hierarchy with island membership.
+- semantic scopes (city, district, optional island group, subregion) with ranked parentage, drawn district boundaries that may cut through islands, and optional explicit whole-island membership.
 
 Every record has explicit lifecycle, provenance, strength, replacement, and lock state, plus revision history. The only path to canon is an authorized explicit accept, and software proposals cannot self-canonize. A scoped query returns everything a planner or generator must respect, with a deterministic digest and metric summary, and never reads raster pixels or reference-layer state.
 
-**What the next slice can build on it:** a thin *city strategy → district program → island-group allocation* layer can do the following without schema replacement:
+**What the next slice can build on it:** a thin *city strategy → district program → demand-created generation worksets/batches* layer can do the following without replacing this substrate's schema:
 
 - add planning records that reference `geo_scopes`, land features, and anchors by id and revision;
 - read `metrics`, `anchors[]` obligations, and `readiness` to size budgets, detect infeasibility, and refuse generation in scopes with unplaced must-exist anchors;
 - attach AI-derived machine profiles (Bible §8) to district scopes by id;
-- propose island-group scopes or district membership through `/proposals` for acceptance;
-- hand a pilot generator one island or island group whose query bundle plus inherited plan constraints drive a bridge from `CanonicalConstraints` into `GenerateCityContext` (boundary polygons, water polygons from `classifyPoint`, obstacles from anchors, protected regions, and hard routes), with the seed and canonical digest recorded for reproducibility.
+- propose district boundaries, optional island-group scopes, or district membership through `/proposals` for acceptance;
+- form a generation workset from selected islands or derived district/island land pieces (the latter requiring the deferred clipping capability), inheriting its district program and reading the district's prior generated/accepted state and still-unfulfilled requirements (A-018; the persistence of that fulfillment state belongs to the planning slice);
+- hand a pilot generator one workset whose query bundle plus inherited plan constraints drive a bridge from `CanonicalConstraints` into `GenerateCityContext` (boundary polygons, water polygons from `classifyPoint`, obstacles from anchors, protected regions, and hard routes), with the seed and canonical digest recorded for reproducibility.
 
 **Intentionally deferred:**
 
 - polygon boolean operations, buffering, and any clipping dependency;
 - multipolygon geometry and terrain/elevation;
 - minor canal networks;
-- generation profiles, generation runs, and planning/feasibility records;
+- generation profiles, generation runs, generation worksets, district fulfillment state, spatial density/intensity models, and planning/feasibility records;
+- deterministic parametric construction aids beyond the §4.1 circle/ellipse/rectangle constructors, such as the radial/spoke-wall constructor (R-014, A-020);
 - the AI synthesis implementation and a dedicated proposer credential;
 - SVG/GeoJSON import;
 - the R\*Tree (pending measurement);

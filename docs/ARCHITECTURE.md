@@ -158,19 +158,58 @@ This classification does not override authored/accepted-content protection: ordi
 Generation is conceptually layered:
 
 ```text
-City strategy
-  → District program
-  → Island-group / island-chain allocation
-  → Island morphology
+City strategy                         (persistent strategic planning)
+  → District program                  (persistent strategic planning)
+  → Generation workset / batch        (demand-created execution unit)
+  → Island / land-piece morphology
   → Local block / quarter refinement
   → POI promotion / detailed authoring
 ```
+
+The architecture separates four concerns that must not be collapsed into one tree:
+
+1. **Persistent semantic geography/scopes** — accepted land (physical islands), water, districts, optional island groups, subregions, anchors, and connections (§7, §8). These describe the world.
+2. **Persistent strategic planning** — city strategy and district programs, which attach to semantic scopes by reference (§8).
+3. **Demand-created generation worksets/batches** — execution constructs that select land to generate together under district planning (A-018). They are not canonical geography.
+4. **Lower-level morphology/detail** — island/land-piece, block, lot, building, and POI work (§9).
+
+Island groups are an optional semantic scope (§8), not a mandatory generation tier. The earlier model in which island-group/island-chain allocation was a required stage between district program and island morphology is superseded.
 
 Higher levels allocate roles, constraints, obligations, budgets, relationships, ranges, weights, and priorities. Lower levels produce geometry and detail.
 
 Lower-level feasibility must be able to feed back upward rather than forcing geometrically impossible allocations.
 
 This is an architectural direction, not a mandate to implement all levels at once or to build a single framework spanning them.
+
+## A-018 — Generation Worksets Are Execution Constructs
+
+Routine generation executes through demand-created generation worksets (batches). A workset is a planning/execution construct, not a canonical geographic entity: creating, discarding, or re-forming a workset never creates, alters, or retires canonical geography.
+
+A workset may contain arbitrary selected land appropriate to generate together, including whole islands and derived district/island land pieces (A-019). It:
+
+- inherits the requirements and program constraints of the district(s) its land lies in;
+- reads previously generated and accepted state in those districts;
+- reads which district requirements remain unfulfilled, so later batches do not duplicate facilities or roles already satisfied by earlier batches.
+
+This implies a conceptual, read-side **district requirement/fulfillment state** derived from, or maintained alongside, the district program and accepted generated output. Its persistence schema is intentionally undecided (§31).
+
+Worksets remain subject to A-005 (bounded/local), A-006 (deterministic from controlled inputs, including the district state they read), A-002/A-004 (canon protection), and A-017 feasibility feedback.
+
+## A-019 — Districts and Islands Are Independent Geometries
+
+Physical islands are accepted land polygons; the land polygon itself is the island's identity. Districts are persistent drawn spatial regions. Neither is defined in terms of the other.
+
+- A district boundary may cut through an island, and one island may intersect several districts.
+- There is no strict District → Island ownership hierarchy. Explicit whole-island district membership is metadata/convenience only and never defines authoritative district spatial extent.
+- A district's authoritative spatial extent is its accepted drawn boundary. A district with no accepted boundary has no authoritative spatial extent.
+- Any member-polygon extent that current canonical query/validation code resolves for a boundaryless scope is a legacy query/selection convenience only. It is not canonical district geometry, future district planning/generation must not interpret it as authoritative district extent, and it must not recreate a District → Island ownership model.
+- Later generation may derive `island geometry ∩ district geometry` land pieces at planning/generation time, only from authoritative district geometry, instead of requiring manually authored split-island features. Derived pieces are not canonical features unless separately and explicitly accepted. Deriving them will require a polygon clipping capability, which is a dependency decision for the slice that first needs it (§3).
+
+## A-020 — Parametric Canonical Construction Is Authoring, Not Generation
+
+Deterministic parametric construction of canonical geometry — such as a radial/spoke-wall constructor that casts `N` rays from a canonical center at `θₙ = θ₀ + n · (360° / N)` and intersects each with the actual accepted inner and outer boundaries — is a canonical-geometry **authoring aid**.
+
+It is not procedural city generation, requires no AI, consumes only accepted canonical inputs and explicit parameters, and produces ordinary draft canonical geometry (with its construction parameters recorded) that must be explicitly accepted like any other authored geometry (A-015). It does not bypass lifecycle, lock, or protection rules.
 
 # 3. Technology Baseline
 
@@ -330,6 +369,10 @@ This separation permits:
 
 Geometry established from reference artwork is normalized and explicitly accepted (A-015) and classified by anchor strength (A-016). It is expressed in the canonical physical scale (A-014).
 
+Canonical geography is persistent semantic geography. Physical land (islands) and administrative/planning regions (districts, optional island groups, subregions) are independent geometries (A-019). Semantic scopes may carry a parent/rank relationship for organization and query context, but that rank does not by itself define a generation stage (A-017).
+
+Canonical geometry may be produced by manual tracing, by import, by explicit accepted proposals, or by deterministic parametric construction aids such as a radial/spoke constructor (A-020). All paths end in the same explicit acceptance.
+
 # 8. District and Subregion Architecture
 
 The current lightweight district concept must evolve without making the district table itself a universal object store.
@@ -367,6 +410,30 @@ MARKET DISTRICT
 
 The implementation must support useful local variation without requiring proliferation of top-level districts.
 
+## District geography versus island geography
+
+A district's persistent geography is a drawn spatial region, not a list of islands (A-019). Its authoritative spatial extent is its accepted drawn boundary; without one it has none. Island membership in a district is optional metadata and never defines district extent, including when current query code falls back to member polygons for a boundaryless scope (A-019). Where a district boundary cuts an island, planning and generation work with the part of the island inside the district, derived when needed rather than stored as manually split canonical land.
+
+## Optional island groups
+
+Where the world has a genuine named grouping (for example, an island chain), it may be persisted as an `island_group` semantic scope. Island groups are optional context for naming, lore, query, and planning references. They are not a required planning or generation layer, and districts need not be partitioned into island groups.
+
+## District program and fulfillment state
+
+A district program is persistent strategic planning attached to a district scope by reference. It expresses the district's required roles, facilities, obligations, budgets, and weights.
+
+Generation worksets (A-018) read district planning downward and read district state sideways: what previously generated and accepted work in the district already provides, and which program requirements remain unfulfilled. This read-side fulfillment state is a conceptual architectural requirement. Whether it is stored, derived on demand from accepted output, or both, is undecided (§31).
+
+## Spatially varying district intensity
+
+District planning must not assume one flat district-wide density/intensity scalar. It must permit spatially varying intensity, such as:
+
+- multiple density/intensity nodes, each with a falloff;
+- a citywide center pull coexisting with district-specific centers (for example, an administrative compound);
+- later, barriers and connectivity (water, walls, crossings) affecting how intensity propagates.
+
+The representation, falloff functions, and combination rules are undecided and belong to the district-planning slice.
+
 # 9. Generator Refactor Boundary
 
 The current CITY_NET geometry pipeline should remain largely intact initially.
@@ -378,9 +445,11 @@ The target conceptual pipeline is:
 ```text
 Canonical Geography
         +
-Selected Generation Region
+Generation Workset (selected land / derived district-island pieces)
         +
-District Profile
+District Profile / Program (incl. spatial intensity)
+        +
+District Fulfillment State (already provided / still required)
         +
 Subregion Overrides
         +
@@ -401,6 +470,8 @@ Core layout algorithms should not need to know what "Market District" or "Nobles
 
 This pipeline corresponds to the lower, geometry-producing levels of the A-017 hierarchy; higher levels supply its roles, constraints, and budgets.
 
+It runs once per generation workset (A-018), not once per island group. The workset's land may be whole islands or derived district/island pieces (A-019). The workset's inputs — canonical digest, district program and fulfillment state read, profile versions, and seed — are what make its output reproducible (A-006).
+
 # 10. Generation Profile Architecture
 
 A generation profile should describe urban behavior rather than a specific hard-coded district name.
@@ -408,7 +479,7 @@ A generation profile should describe urban behavior rather than a specific hard-
 Potential dimensions include:
 
 ```text
-density
+density / intensity (may be spatially varying; see §8)
 height distribution
 street regularity
 block scale
@@ -438,7 +509,7 @@ special infrastructure weights
 
 The initial implementation may support only a subset.
 
-The interface must remain extensible.
+The interface must remain extensible. In particular, density/intensity must be able to become a spatial field (multiple nodes with falloff) rather than only a single profile-wide scalar, without redesigning the geometry pipeline.
 
 # 11. Building Archetype Architecture
 
@@ -942,5 +1013,8 @@ The following are intentionally unresolved and must not be treated as settled ar
 8. Best import method for geometry beyond raster reference layers.
 9. Exact mechanism for promoting urban fabric into semantic POIs.
 10. Exact synchronization rules for campaigns operating at different in-world dates.
+11. Persistence form of district requirement/fulfillment state read by generation worksets (stored, derived, or hybrid) (A-018).
+12. Representation and combination rules for spatially varying district density/intensity nodes and falloff (§8).
+13. The polygon clipping capability needed to derive district/island intersection pieces (A-019).
 
 These decisions should be resolved through bounded design work, prototypes, or measurement rather than assumption.
