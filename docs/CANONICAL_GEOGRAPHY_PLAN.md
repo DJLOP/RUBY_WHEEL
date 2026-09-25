@@ -6,6 +6,8 @@
 
 **Post-WP6 amendment.** WP6 human use established that districts are drawn spatial regions independent of physical islands, that island groups are optional semantic scopes rather than a generation tier, and that future generation runs through demand-created generation worksets/batches. These are recorded authoritatively in `docs/REQUIREMENTS.md` (R-011, R-013, R-014, R-025, R-026, R-031) and `docs/ARCHITECTURE.md` (A-017–A-020, §8, §9). This plan is reconciled with them in §3.5, §6, §9, and §13. The WP1–WP6 schema and behavior are unchanged, and WP7 scope is unchanged.
 
+**Pre-WP7 authoring-tools slice.** §15 adds a small inserted slice, **AT1 — deterministic radial construction**, which executes R-014 / A-020 between WP6 and WP7. It does not renumber, re-scope, or depend on WP7. §15 is planned and awaiting human review before implementation.
+
 ## 1. Goal and completion criteria
 
 Establish persistent, structured, explicitly accepted canonical spatial constraints — land, major water, hard/soft anchors, protected regions, canonical linear/connective features, required connections, and hierarchical spatial scopes — that later planners and generators can query without touching raster evidence.
@@ -619,6 +621,12 @@ Anchor register and part workflow, connection creation between parts/islands, sc
 
 **Gate:** component tests; live smoke of manual anchor create → accept → add part → placed plus connection/scope editing; human checks 6 and 8. The Bible-register import portion of human check 5 is deferred to WP7 because the import path and register document are delivered there.
 
+### Pre-WP7 slice AT1 — Deterministic radial construction (inserted; not a renumbering)
+
+The generic radial/spoke constructor (R-014, A-020), specified in full in §15: a pure ray/closed-ring intersection core mirrored on backend and frontend, one transactional construct endpoint that produces drafts only, a minimal constructor panel with in-scene preview, and a construction-review list.
+
+**Gate:** §15.14 tests; both full suites and the build; human acceptance §15.15.
+
 ### WP7 — Import/export, legacy promotion, final verification
 
 Interchange import (world and source-pixel modes, dry run), legacy-water promotion, export, and the Bible-derived register document (`docs/canonical/initial_register.v1.json`, submitted for human review of its derivation before import). Full regression suites, build, and the complete human acceptance list (§11).
@@ -654,7 +662,7 @@ Every record has explicit lifecycle, provenance, strength, replacement, and lock
 - multipolygon geometry and terrain/elevation;
 - minor canal networks;
 - generation profiles, generation runs, generation worksets, district fulfillment state, spatial density/intensity models, and planning/feasibility records;
-- deterministic parametric construction aids beyond the §4.1 circle/ellipse/rectangle constructors, such as the radial/spoke-wall constructor (R-014, A-020);
+- deterministic parametric construction aids beyond the §4.1 circle/ellipse/rectangle constructors and the AT1 radial constructor (§15);
 - the AI synthesis implementation and a dedicated proposer credential;
 - SVG/GeoJSON import;
 - the R\*Tree (pending measurement);
@@ -669,3 +677,365 @@ None are open. The resolved decisions are recorded here so the reasoning stays t
 - **D-2 (resolved): land/water default.** This is recorded as the working decision in §4.2. The Bible establishes an island/waterway city with no macro-scale neither-land-nor-water terrain, and engineered wetlands are represented as `water/wetland`.
 
 Per the Bible's escalation rule, a *specific* hard-anchor placement that turns out to be genuinely ambiguous in the source material is raised to the GM when that anchor is traced, as data rather than as a plan decision. Until then the anchor stays unplaced or carries a `soft` part.
+
+## 15. Pre-WP7 slice AT1 — deterministic radial construction
+
+**Status:** Planned, pending human review. This is the next implementation step before WP7 (`docs/PROJECT_STATUS.md`).
+**Governing:** R-006, R-014; A-015, A-020; this plan §3.1, §3.2, §3.7, §4.1, §7.2, §8.1, §8.2.
+**Position:** Inserted between WP6 and WP7 on `feature/canonical-geography`. WP7 keeps its number, scope, and gate. AT1 needs nothing from WP7, and WP7 needs nothing from AT1 except the interface note in §15.8.
+
+### 15.1 Goal
+
+An authorized world editor can construct exact radial spokes: straight line features cast from a center at `θₙ = θ₀ + n · (360° / N)` and running between two accepted closed boundaries. The editor previews them, then persists them as ordinary **draft** canonical features that go through the normal revise/accept/lock/retire lifecycle.
+
+This is deterministic canonical-geometry authoring (A-020). It is not procedural generation, it involves no AI, and it creates nothing but draft line geometry.
+
+### 15.2 Generic domain boundary
+
+- The mechanism is named and coded as **radial construction**, in files `radialConstruction.{js,ts}`, a construction type `radial_spoke`, and the route `/constructions/radial`. No code, identifier, constant, default, or test fixture names a world, city, district, wall system, or campaign concept.
+- It knows only center, two closed rings, `N`, `θ₀`, and the output feature settings the editor chooses. It is equally usable for a radial city, a star fortress, a precinct, or any similar geometry.
+- The output feature class and kind are chosen by the editor (§15.3.4). The tool attaches no semantic meaning to spokes, and the default output has no `kind`.
+- It never creates, edits, or infers scopes, district boundaries, anchors, anchor parts, connections, or memberships. The editor makes any semantic use of the resulting lines separately, through the existing WP5/WP6 workflows.
+- Test fixtures are synthetic shapes (§15.14). Real-world geometry appears only in human acceptance (§15.15), never in code or automated tests.
+
+### 15.3 Inputs and eligibility
+
+No new entity type or table is added. All inputs are existing `canonical_features` rows or explicit parameters.
+
+#### 15.3.1 Boundaries (inner and outer)
+
+| Rule | Decision |
+| --- | --- |
+| Eligible geometry | A `polygon` (its **outer ring** is the boundary, and holes are ignored), or a **closed** `linestring` (first vertex equals last). Points and open linestrings are ineligible. |
+| Eligible class | Any `feature_class`. For example, a `route` wall ring, a `land` polygon, a `scope_boundary`, or a `site` precinct. Class is irrelevant to the geometry. |
+| Lifecycle | **Accepted only**, for preview and persistence alike. Draft, proposed, and retired features are not offered by the pickers and are rejected by the server. To construct against an unaccepted ring, accept it first. That is the explicit canon decision A-020 requires. |
+| Lock / replacement | Locked and `non_replaceable` inputs are eligible. Construction only reads them. |
+| Distinct | Inner and outer must be different features. |
+| Revision pinning | The request carries each input's `expected_revision`. If the accepted revision differs at persist time (someone revised it after preview), the server returns 409 `stale input`, and the UI reloads and re-previews. |
+| Containment | Rings need not be nested. Radial order is checked per spoke (§15.5). |
+
+#### 15.3.2 Center
+
+The center is an explicit world `{x, z}`, rounded to the 0.001-wu grid. A-020 permits explicit parameters, so the center need not be a stored entity. It is chosen by exactly one of these sources, which is recorded in `construction.center_source`:
+
+| Source | How | Server behavior |
+| --- | --- | --- |
+| `coordinate` | Numeric X/Z entry, or a map click on the Y=0 plane (with the existing vertex snapping from `tracing.ts`). | Uses the submitted `center`. |
+| `feature_point` | Pick an accepted `point` feature (for example a `site` point). | Loads the feature at `expected_revision` and derives the center from its geometry. A submitted `center` must be absent. |
+| `feature_construction_center` | "Use center of" an accepted inner/outer (or other) feature whose `construction.type` is `circle` or `ellipse`. | Loads the feature at `expected_revision` and derives the center from `construction.center`. A submitted `center` must be absent. |
+
+The center must be **strictly inside** both boundary rings. This is decided exactly on the 0.001-wu grid with the existing `gLocatePointInRing`, the frontend mirror being `locateInRing`. A center on a ring or outside it is a construction-level error. Radial semantics (§15.5) depend on this, and it is what makes "no intersection" and "exactly one ambiguous intersection" impossible for a valid ring.
+
+#### 15.3.3 Spoke parameters
+
+- `count` (`N`): an integer from 1 to 360. Non-integers are rejected, never rounded. `N = 1` (a single spoke) is valid.
+- `offset_deg` (`θ₀`): any finite number, normalized as in §15.4. NaN and ±Infinity are rejected.
+- `omit_indices` (optional): sorted, unique integers in `[0, N)`, explicitly excluding spokes (§15.13). At least one spoke must remain.
+
+#### 15.3.4 Output settings (new-drafts mode only)
+
+- `feature_class`: `route` (the default) or `site`, the classes that allow `linestring`.
+- `kind`: optional, from the existing vocabulary for the chosen class (for example `route` → `wall`). There is no default kind.
+- `constraint_strength`: `hard` or `soft`. It defaults to `hard`, matching the existing draft form (`featureEditing.ts`).
+- `width_wu`: optional, `route` only, and shared by every spoke.
+- `name_prefix`: optional, defaulting to `Spoke`. Each spoke is named `<prefix> #<index>` with the 0-based construction index, so names match `construction.index` and the preview table.
+- There are no anchor/part, attribute, or evidence fields. `evidence_json` is null, because the derivation is recorded in `construction_json`. Anchor linkage can be added per draft afterwards through the existing inspector.
+
+### 15.4 Angular convention and determinism
+
+- **Convention.** Angles are measured from **+X toward +Z** in world X/Z. This matches the existing `rotation_rad` in circle, ellipse, and rectangle records and the reference-layer calibration (+X is image-right, +Z is image-down). On an unrotated reference layer, 0° points image-right and 90° points image-down, so angles increase clockwise in the top-down view. It is **not** a compass bearing, and it never depends on camera, zoom, or renderer state. The UI states the convention beside the offset field and highlights spoke 0 in the preview.
+- **Units.** The UI and records use degrees (`*_deg` field names). Radians exist only transiently inside the math.
+- **Offset normalization** (identical in both mirrors):
+  `o = ((θ₀ % 360) + 360) % 360`, then `o = Math.round(o * 1e6) / 1e6`. If `o >= 360` or `o === 0` (including `-0`), `o = 0`. The resolution is 1e-6°, which is sub-grid at any radius inside `WORLD_LIMIT`.
+  Offsets that differ by a multiple of `360/N` produce the same set of lines with shifted indices. They are **not** re-normalized to `[0, 360/N)`, because the index-to-angle mapping is part of the record.
+- **Spoke angle:** `step = 360 / N`, `raw = o + n * step`, `θₙ = raw >= 360 ? raw - 360 : raw`, evaluated in exactly this order in both mirrors.
+- **Direction:** `d = (cos θ, sin θ)`, where `θ` is `θₙ · π / 180`. When `θₙ` is exactly 0, 90, 180, or 270, the exact unit vectors `(1,0)`, `(0,1)`, `(−1,0)`, `(0,−1)` are used instead of trigonometry.
+- **Numeric rules.** Two fixed constants are defined once per mirror:
+  - `CONTACT_TOLERANCE_WU = 0.001`, one grid step, used as the perpendicular-distance tolerance for "a vertex lies on the ray";
+  - `MIN_SPOKE_LENGTH_WU = 1`.
+  Ray arithmetic is float64. Containment is exact on the grid (§15.3.2). Output endpoints are normalized to the 0.001-wu grid by the existing `normalizeGeometry`, and each spoke must pass the existing `validateGeometry('linestring')`.
+- **Determinism.** Identical inputs (input geometries at their pinned revisions, center, `N`, `θ₀`, and `omit_indices`) yield byte-identical geometry and construction records, apart from `construction_id` (§15.8). No randomness, reference-layer data, pixel data, or view state is read.
+- **Authority.** The **server** computes persisted geometry. The client mirror exists for live preview only. The two share fixtures (§15.14), and after Create the UI shows the server's returned geometry.
+
+### 15.5 Boundary intersection semantics
+
+This needs only one new capability: a ray against a single closed ring. There is no clipping, no boolean operation, and no new dependency (§2.3, §9).
+
+**Per-ring crossing extraction.** Let `C` be the center and `d` the unit direction. For each ring vertex `Vᵢ`, compute:
+
+- side `sᵢ = cross(d, Vᵢ − C) = d.x·(Vᵢ.z − C.z) − d.z·(Vᵢ.x − C.x)`, treated as 0 when `|sᵢ| ≤ CONTACT_TOLERANCE_WU`;
+- along-ray parameter `tᵢ = dot(d, Vᵢ − C)`.
+
+Walk the ring cyclically:
+
+- An edge whose endpoints have strictly opposite nonzero sides is a **crossing** at `P = A + (B − A) · sA / (sA − sB)`, with `t = dot(d, P − C)`.
+- A maximal run of consecutive zero-side vertices is an **on-ray run**.
+  - **Single-vertex run.** Compare the nonzero sides immediately before and after it. If they are opposite, it is a **crossing at that vertex**, using the vertex's exact stored coordinates. If they are the same, it is a **touch** (tangential contact, not a crossing).
+  - **Multi-vertex run** (the ray overlaps a boundary edge). If any vertex of the run has `t > CONTACT_TOLERANCE_WU` (a *forward* overlap), the spoke has the blocking error `collinear_overlap` on that ring. This applies whatever the neighbouring sides are, and whether the overlap lies before, at, or beyond the endpoint that would otherwise be selected. The error reports the overlap's `t` range and its X/Z endpoints. The overlap is not classified as a crossing or a touch, and no endpoint is selected for that spoke. A multi-vertex run lying wholly at or behind the center is ignored, like any other contact there.
+  - This deliberately defines no point or ordering rule for overlaps. The editor resolves one by changing `θ₀` or `N`, by explicit omission, or by revising the boundary.
+- Only crossings and touches with `t > CONTACT_TOLERANCE_WU` are considered. Everything behind or at the center is ignored. The center is strictly inside, so a valid ring always yields an **odd** number of crossings along the ray. An even count can only come from tolerance degeneracy, and is a per-spoke error.
+
+**Endpoint selection.** Let the inner crossings sorted by `t` be `I₁ … Iₖ`, and the outer crossings `O₁ … Oₘ`.
+
+- **Spoke start = `Iₖ`**, the outermost exit from the inner ring. Past it the ray never re-enters the inner region.
+- **Spoke end = `O₁`**, the first exit from the outer ring. Before it the ray never leaves the outer region.
+- The spoke `[Iₖ, O₁]` therefore lies entirely outside the inner region and inside the outer region, and crosses neither boundary. This is the only choice with that property, which is why it is used.
+- Geometry is exactly two vertices `[start, end]`, directed inner → outer.
+
+**Case table:**
+
+| Case | Result | Blocks persistence? |
+| --- | --- | --- |
+| Center not strictly inside inner or outer ring | Construction error `center_not_inside` (names which ring). No spokes are computed. | Yes |
+| Ineligible, missing, unaccepted, or stale input, or inner = outer | Construction error (`ineligible_input`, `not_found`, `not_accepted`, `stale_input`, `same_input`) | Yes |
+| Exactly one crossing per ring, in order | Valid spoke | — |
+| Inner ring crossed `k > 1` times (concave inner) | Valid spoke from `Iₖ`, with warning `inner_multiple_crossings (k)` | No |
+| Outer ring crossed `m > 1` times (concave outer; the ray re-enters beyond the end) | Valid spoke to `O₁`, with warning `outer_multiple_crossings (m)` | No |
+| Even crossing count on either ring | Spoke error `ambiguous_ray` | Yes, unless omitted |
+| Any forward multi-vertex on-ray run on either ring (collinear overlap anywhere along the ray: before, at, or beyond the would-be endpoint) | Spoke error `collinear_overlap` (names the ring, `t` range, and X/Z) | Yes, unless omitted |
+| An inner **touch** with `t` in `(tIₖ, tO₁)`, or an outer touch with `t < tO₁` (the spoke would graze a boundary) | Spoke error `grazes_inner` / `grazes_outer` at the contact point | Yes, unless omitted |
+| A touch outside the spoke segment | Ignored | — |
+| `tO₁ ≤ tIₖ` (the outer ring is reached before the ray leaves the inner ring, as when the rings cross) | Spoke error `invalid_radial_order` | Yes, unless omitted |
+| Length `< MIN_SPOKE_LENGTH_WU`, or linestring validation fails after grid rounding | Spoke error `too_short` / `invalid_geometry` | Yes, unless omitted |
+
+Spokes never intersect each other: distinct rays from one center meet only at the center, which is inside the inner ring and excluded. A computed endpoint that is not a vertex crossing lies within about 0.0007 wu of the true ring after grid rounding. This is accepted. **Input rings are never modified**, for example by inserting a vertex, to force exact coincidence.
+
+**Performance bound.** The cost is `N ≤ 360` rays × two rings of up to 20,000 vertices each (`MAX_VERTICES`), a linear scan with no index. The live-preview target is under 50 ms for `N = 16` against two 4,096-vertex rings in the frontend. The implementing agent records the measured time in the WP report.
+
+### 15.6 Preview and persistence workflow
+
+1. **Open.** In the canonical-geography manager, open **RADIAL CONSTRUCT** (world editor only). It is mutually exclusive with tracing, map-pick inspection, and land selection, like the existing tools.
+2. **Inner boundary.** Pick by map click (candidates from `mapPick.ts`, filtered to eligible accepted features) or from a list of eligible accepted features. The panel shows id, name, class, and revision. Ineligible candidates are listed with their reason (for example "open linestring" or "draft").
+3. **Outer boundary.** The same as step 2.
+4. **Center.** Choose one source from §15.3.2. The readout shows X/Z (wu and m). An inside/outside status is shown against both rings immediately.
+5. **Spoke count.** Numeric input for `N`.
+6. **Angular offset.** Numeric degrees (±1° and ±0.1° nudges), plus **Aim spoke 0**: click a map point, and `θ₀` becomes the angle from center to that point, rounded to 0.001°. The convention is stated inline (§15.4).
+7. **Preview** (no network; client mirror). Recomputation runs on every parameter change. Valid spokes render in a distinct **PREVIEW** style, different from draft/proposed/accepted, and spoke 0 is emphasized. The center marker is shown. Invalid spokes render as an error-colored ray segment from the center to the outer ring's bbox. A table lists index, `θₙ`, length (m), status, and warnings or errors, and hovering a row highlights its spoke.
+8. **Resolve problems.** Construction errors disable Create and state the reason. Per-spoke errors disable Create unless every invalid index is ticked **Omit** (§15.13).
+9. **Output settings** (§15.3.4).
+10. **Create drafts.** A single request to the construct endpoint. The server reloads the inputs at the pinned revisions, recomputes, and inserts every spoke draft in **one transaction**, or inserts nothing and returns the full report. It emits one `dataUpdated` on success.
+11. **Inspect and edit.** The constructor switches to a **construction review list** (the drafts of this `construction_id`). Each row opens the existing inspector, where drafts can be edited, deleted, or traced through the existing WP5 workflow. Editing a spoke's geometry clears its construction record (§15.8).
+12. **Accept explicitly.** Either accept each spoke through the existing accept confirmation, or tick an explicit selection in the review list and use **Accept selected (k)**. That shows one confirmation stating count, class, kind, strength, and total length. It then issues the existing per-record `accept` calls sequentially with each `expected_draft_version`, stops at the first failure, and reports which rows were accepted. Nothing is pre-ticked, there is no accept-all, and there is no accept-and-lock (§7.2).
+
+Preview never writes. Closing the tool discards preview state. Nothing reaches the server until Create.
+
+### 15.7 Output representation
+
+- **One `canonical_features` row per spoke:** `geometry_type = 'linestring'`, exactly two vertices, and the class/kind/strength/width/name from §15.3.4.
+- Governance: `lifecycle_state = 'draft'`, `provenance = 'authored'` (an editor using a deterministic aid, like the §4.1 constructors), `replacement_state = 'non_replaceable'`, and `is_locked = 0`. These are the same defaults as `POST /:entity`.
+- There is **no grouping entity, table, or relationship.** Spokes are independent features with independent lifecycle and revision. The `construction_id` in each record (§15.8) is informational only. It lets the UI list siblings and pre-fill reconstruction. It is never a foreign key, a query input, or a generator input, and it confers no joint lifecycle.
+- It does **not** create closed district polygons, scopes, scope boundaries, memberships, anchors, or connections.
+
+### 15.8 Construction metadata (`construction_json`)
+
+Each spoke stores a `radial_spoke` construction record:
+
+```text
+{
+  type: 'radial_spoke',
+  version: 1,
+  construction_id: '<uuid, server-generated per construction>',
+  center: {x, z},
+  center_source: { kind: 'coordinate' }
+               | { kind: 'feature_point' | 'feature_construction_center', feature_id, revision },
+  inner: { feature_id, revision },
+  outer: { feature_id, revision },
+  count: N,
+  offset_deg: <normalized θ₀>,
+  omit_indices: [...],
+  index: n,
+  angle_deg: θₙ,
+  angle_convention: 'deg_from_+x_toward_+z'
+}
+```
+
+Rules:
+
+- **Geometry remains authoritative** (§3.2). The record explains how the geometry was derived and pre-fills reconstruction. It is never re-evaluated automatically. The query bundle, generators, and the digest never read it. The digest changes only through the normal `revision` bump, since `construction_json` is already a constraint column.
+- **Only the constructor writes `radial_spoke` records.** The backend `checkConstruction` (`entities.js`) gains the `radial_spoke` shape with strict keys. `POST /:entity` and `POST /proposals` reject a client-supplied `radial_spoke` construction with 400. `PATCH` on a draft or proposal accepts a `radial_spoke` record only when both the record and the geometry equal the stored values. A PATCH that changes geometry while keeping the record is rejected with 400 ("clear the construction record when editing constructed geometry"). `revise` and draft-from-history copy the record together with its geometry, so they stay consistent.
+- **The frontend clears, never adapts, the record.** Vertex edits already clear `construction` in `tracing.ts`. `translateConstruction` must return `null` for `radial_spoke` rather than shifting `center`, because the record would otherwise misdescribe its inputs.
+- The inspector shows the record read-only (center, inputs with revisions, `N`, `θ₀`, index, `θₙ`). It also shows a **stale-inputs notice**: a client-side comparison of each recorded input revision with the currently loaded accepted revision, or "input retired / not found". The notice is informational and triggers nothing.
+- **Interface note for WP7 (no scope change):** export carries `construction_json` unchanged like any field. Interchange import sets an incoming `radial_spoke` record to `null` and lists that in the dry-run report, because its feature ids and revisions are database-local. Circle, ellipse, and rectangle records are unaffected.
+- This is a record of one construction type, not a parametric-CAD framework. There are no expressions, no dependency graph, and no generic constraint solver.
+
+### 15.9 Revision and input-change semantics
+
+Nothing is ever rewritten automatically. Every path ends in drafts and explicit acceptance.
+
+| Change after spokes exist | Behavior |
+| --- | --- |
+| Inner or outer boundary revised and accepted | Existing spokes (draft or accepted) are untouched. The inspector shows the stale-inputs notice. The editor may reconstruct. |
+| Center, `N`, `θ₀`, or omissions should change | The editor reconstructs explicitly. |
+| An input is retired | Spokes are untouched, with a notice. Reconstruction against it is impossible until it is restored or replaced by another accepted input. |
+
+**Reconstruct** is started from any spoke's inspector ("Reconstruct from this construction"). It opens the constructor pre-filled from the record: current accepted input revisions, recorded center source, `N`, `θ₀`, and omissions. The editor adjusts and previews, then persists in one of two modes:
+
+- **Revision mode.** This mode may change only the center (and center source), `θ₀`, and the pinned input revisions or input features. **`count` and `omit_indices` must equal the values in the targets' accepted construction records**, which must all agree with each other. Changing either one is a different set of spokes, and must use new-drafts mode. Revision mode is offered only when all of the following hold:
+  - every non-omitted index has exactly one existing **accepted** spoke with the same `construction_id` and `index`;
+  - `revises` names exactly those spokes, and **every accepted feature carrying that `construction_id` is among them**, so no accepted sibling is left outside the reconstructed set;
+  - all of them are unlocked with no open draft revision.
+
+  The request carries `revises: [{index, feature_id, expected_revision}]`. The server re-checks every one of these conditions inside the transaction. In one transaction the server creates a **draft revision** (`revises_id`) of each target, replacing only geometry and construction. Class, kind, strength, width, name, and anchor linkage are copied from canon as `revise` does, and `construction_id` is kept. The request returns 409 with the full list and writes nothing if any of these hold:
+
+  - a target is locked, has an open revision, or is stale;
+  - an index or `construction_id` does not match;
+  - `count` or `omit_indices` differs from the recorded values, or the records disagree;
+  - an accepted sibling is missing from `revises`. Accepting each revision keeps its id and bumps its revision (§3.7), so planner references survive.
+- **New-drafts mode.** This is always available. It creates independent new drafts with a new `construction_id`. The old spokes stay exactly as they are. The review list names the old accepted spokes and says they remain canonical until the editor retires them explicitly through the existing per-record retire action. Nothing is retired automatically.
+
+Draft spokes from an earlier construction are simply edited or deleted, since drafts are hard-deletable (§3.7). The review list offers **Discard drafts of this construction**. It issues existing per-record `DELETE` calls for drafts only after a count confirmation, and never touches accepted rows.
+
+### 15.10 Authorization, protection, and lifecycle
+
+- The construct endpoint is mounted with `authenticate, requireWorldEditor`, including `dry_run`. It cannot be reached by player or temporary-admin tokens. Frontend gating (`isPrimaryAdmin`) is presentation only.
+- Outputs are always `draft`. No request field can set lifecycle, lock, replacement state, or provenance, and the endpoint never calls accept.
+- Acceptance is only the existing `POST /features/:id/accept`, with its full validation and `expected_draft_version`.
+- Inputs are only read. Construction never modifies, locks, revises, or retires an input feature. A test pins that the input rows are byte-identical afterwards.
+- Revision mode goes through the same guards as `revise`: 409 when locked, and 409 on an open revision. Accepted, locked, `non_replaceable`, retired, and history rules apply to spokes exactly as to any feature.
+- The constructor is not a software proposal channel. It is an editor tool writing `authored` drafts, so `/proposals` is not used.
+
+### 15.11 Implementation surfaces
+
+**Backend**
+
+| Surface | Change |
+| --- | --- |
+| `backend/canonicalGeography/radialConstruction.js` (new, pure) | Parameter normalization (§15.4), ring extraction from polygon or closed linestring, per-ring crossing extraction and endpoint selection (§15.5), and per-spoke report building. Reuses `gLocatePointInRing`, `normalizeGeometry`, and `validateGeometry` from `geometry.js`. No DB or Express imports. |
+| `backend/canonicalGeography/entities.js` | `CONSTRUCTION_TYPES` gains `radial_spoke` with a strict-key shape check. The client-write refusal (§15.8) is enforced in the create and proposal paths, and in the patch path through `store.js`. |
+| `backend/canonicalGeography/store.js` | `constructRadial(body)`: one `BEGIN IMMEDIATE` transaction that loads inputs, checks eligibility and pinned revisions, computes, and then either inserts N drafts or, in revision mode, uses the existing `refuseOpenRevision` / `insertRevision` path per target. It is all-or-nothing. A patch-path guard enforces the `radial_spoke` invariant. |
+| `backend/routes/canonical_geography.js` | `POST /constructions/radial`, registered **before** `/:entity` (like `/proposals` and `/query`). It uses the `mutation` wrapper (one `emitUpdate`) for real writes. `dry_run: true` returns the report with 200 and emits nothing. Status codes: 400 for malformed parameters, 404 for a missing input, 409 for ineligible, stale, per-spoke-invalid, locked, or mismatched requests, and 201 on success. |
+
+**Request:** `{ inner: {feature_id, expected_revision}, outer: {…}, center? , center_source?, count, offset_deg, omit_indices?, output?, revises?, dry_run? }`. `output` is required in new-drafts mode and forbidden in revision mode. In revision mode, `count` and `omit_indices` must equal the recorded values (§15.9).
+
+**Report:** `{ ok, normalized: {center, count, offset_deg, omit_indices}, errors: [construction-level], spokes: [{index, angle_deg, status: 'valid'|'invalid'|'omitted', geometry?, length_wu, length_m, warnings[], error?}] }`. On 201 it also returns `construction_id` and the created or revised feature records.
+
+**Frontend** (`frontend/src/modules/canonicalGeography/`)
+
+| Surface | Change |
+| --- | --- |
+| `radialConstruction.ts` (new, pure) | A mirror of the backend module with the same constants and formulas. It uses `locateInRing` from `constraints.ts`. No React, Three.js, network, or reference-layer imports, and it is added to `importBoundary.test.ts`. |
+| `types.ts`, `geometry.ts` | A `RadialSpokeConstruction` type added to the `Construction` union (read and display only). No client code constructs one. |
+| `tracing.ts` | `translateConstruction` returns `null` for `radial_spoke`. |
+| `api.ts` | `constructRadial(body)` and `previewRadialOnServer(body)` (`dry_run`, used by tests and debugging, not the live preview). |
+| `RadialConstructionPanel.tsx` (new) | Steps 2–12 of §15.6: pickers, parameters, spoke table, omissions, output settings, Create, review list, Accept selected, Discard drafts, and Reconstruct pre-fill and mode choice. It keeps `CanonicalGeographyManager.tsx` to a launcher and tool-exclusivity integration only. |
+| `RadialConstructionPreview.tsx` (new) | In-scene preview lines, center marker, and spoke-0 emphasis. Non-raycast, drawn in the canonical overlay Y band (§7.2), with Y=0 click capture for center, aim, and boundary picking following the existing `TracingTool` / `CanonicalPickTool` pattern. |
+| Inspector (in the existing manager/inspector code) | A read-only construction-record display, the stale-inputs notice, and the Reconstruct entry point. |
+| `App.tsx` | Integration only: mount the preview beside the existing canonical tools. |
+
+No dependency is added. No migration is needed, because `construction_json` already exists.
+
+### 15.12 UI scope
+
+It contains only what §15.6 lists. It explicitly excludes:
+
+- general CAD tools and snapping beyond the existing vertex snap;
+- expressions, scripting, and saved parametric templates;
+- a dependency editor or live-linked geometry;
+- automatic district, scope, or polygon creation from spokes;
+- worksets, density tooling, and batch generation;
+- open-linestring or multi-ring boundaries.
+
+### 15.13 Failure UX
+
+- **All-or-nothing by default.** Any construction-level or per-spoke error blocks persistence. Unexplained partial output would break the regular index-to-angle mapping that the record, the review list, and revision-mode reconstruction rely on, and a silently missing spoke is exactly the unexplained omission this tool must not produce.
+- **Explicit omission is the recoverable path.** When a spoke is geometrically invalid (for example, the rings cross at that angle), the editor may tick Omit for that index. The omission is recorded in `omit_indices` on every sibling. The alternatives are to adjust `θ₀` or `N`, or to revise a boundary through the normal lifecycle. Omission is never automatic. During reconstruction, a new omission (or a new `N`) changes the set of spokes, so it is available only in new-drafts mode (§15.9). In revision mode, an invalid spoke can be fixed only through `θ₀`, the center, or the boundaries.
+- **Actionable messages.** Every error names the spoke index and angle, the ring (inner/outer), the reason in plain words, and, where relevant, the contact or crossing point in X/Z. The point is highlighted in the preview. Examples:
+  - "Spoke 3 (135.000°): outer boundary reached before leaving inner boundary — rings cross here. Omit this spoke, change the offset, or revise a boundary."
+  - "Center lies outside the inner boundary (feature #41). Choose a center inside both boundaries."
+  - "Outer boundary (feature #57) changed from revision 2 to 3 since preview. Preview refreshed; review and create again."
+- Warnings (multiple crossings) are shown but do not block.
+- After a failed Create, the preview state is kept so the editor can correct it and retry.
+
+### 15.14 Automated validation
+
+**Shared fixtures.** `backend/__tests__/fixtures/radial_construction_cases.v1.json` holds synthetic rings, centers, `N`, `θ₀`, omissions, and expected per-spoke results. It is copied byte-identically to `frontend/src/modules/canonicalGeography/__tests__/fixtures/`, with a parity test following the existing `canonical_query_bundles.v1.json` pattern. Cases:
+
+1. Regular 64-gon rings (inner r=100, outer r=300) with `N` = 1, 2, 3, 7, 8, 360 and `θ₀` = 0 and 22.5: angles, lengths, and all valid.
+2. Axis-aligned square rings with exact endpoints at 0/90/180/270°, and a 45° ray through the square corners, testing the exact vertex-crossing coordinates.
+3. Concave (notched) inner ring: outermost exit plus the `inner_multiple_crossings` warning.
+4. Concave (bay) outer ring: first exit plus the `outer_multiple_crossings` warning.
+5. Outer ring with an inward vertex touching a ray before the exit: `grazes_outer`. Inner lobe touching from outside: `grazes_inner`. A touch beyond the spoke end is ignored.
+6. Collinear runs: a ray overlapping an inner edge before the spoke start, an outer edge at the would-be endpoint, an outer edge beyond the would-be endpoint (the outer boundary is re-entered and then runs along the ray), and a multi-vertex run behind the center. The first three give `collinear_overlap`, and only for that spoke. The last is ignored. A companion case puts a single on-ray vertex at the same position, and confirms it is still classified as a crossing or a touch.
+7. Crossing rings: `invalid_radial_order` for the affected indices only, and valid everywhere else.
+8. Center outside inner, on inner, outside outer, and on outer: `center_not_inside`.
+9. Offset normalization: −30 → 330, 720.5 → 0.5, −0 → 0, 1e−7 → 0, 359.9999999 → 0. NaN, ±Infinity, and non-integer or out-of-range `N` are rejected. Omission out of range or all omitted is rejected.
+10. Determinism and rotation: identical results on repeated runs. `θ₀ + 360/N` yields the same set of line geometries with indices shifted by one. Changing `θ₀` changes every spoke deterministically.
+
+**Backend** (Vitest + Supertest):
+
+- `canonical_geography_radial_geometry.test.js`: the pure module against the fixtures, plus ring extraction (polygon outer ring with holes ignored, closed linestring, and open linestring rejected).
+- `canonical_geography_radial_construction.test.js`, covering the route and lifecycle:
+  - 401 without a token, and 403 for player and temporary admin (including `dry_run`);
+  - rejection of draft, proposed, retired, point, open-linestring, same-input, and stale-revision inputs;
+  - feature-derived centers (point and circle construction), including rejection of a submitted `center` alongside them;
+  - outputs are `draft` / `authored` / `non_replaceable` / unlocked with the exact `construction_json`, and are absent from `/query` until accepted;
+  - per-spoke accept via the existing route yields revision 1, and the digest changes;
+  - input rows are byte-identical after construction;
+  - any per-spoke error writes zero rows;
+  - one emit per success, and none on rejection or `dry_run`;
+  - revision mode creates draft revisions with `revises_id` and a kept `construction_id`, and accepting keeps the id and sets revision 2;
+  - revision mode returns 409 with zero rows for a locked target, an open revision, a stale target, or an index/`construction_id` mismatch;
+  - revision mode returns 409 with zero rows, and every sibling's row stays byte-identical, when:
+    - `count` differs from the record (fewer or more spokes);
+    - `omit_indices` differs from the record (an index added or removed);
+    - the targets' records disagree on `count` or `omit_indices`;
+    - `revises` leaves out an accepted sibling carrying the same `construction_id`;
+  - the same `count` or `omit_indices` change succeeds in new-drafts mode, with a new `construction_id`, and leaves the old accepted spokes untouched;
+  - `radial_spoke` construction is rejected on `POST /features` and `/proposals`;
+  - PATCH that changes geometry while keeping the record returns 400, and PATCH with `construction: null` plus new geometry succeeds;
+  - `revise` and draft-from-history preserve the record with its geometry.
+
+**Frontend** (Vitest + Testing Library, mocked R3F):
+
+- `radialConstruction.test.ts`: the pure mirror against the shared fixtures, plus parity.
+- `RadialConstructionPanel.test.tsx`: only accepted, eligible features are pickable, and ineligible ones show their reason. Construction errors disable Create. Per-spoke errors disable Create until omitted. Create sends the pinned revisions and the output settings. A failed Create keeps state. The review list pre-ticks nothing. Accept selected confirms the count and uses each `expected_draft_version`. Discard touches drafts only. Reconstruct pre-fills from the record and offers revision mode only when eligible. Editing `N` or an omission during reconstruction disables revision mode, with a reason that points to new-drafts mode, and restoring the recorded values re-enables it. When the server refuses a revision request with 409, the panel shows the listed reasons, keeps the preview state, and does not show any draft revisions.
+- `RadialConstructionPreview.test.tsx`: the preview style differs from draft/proposed/accepted, spoke 0 is emphasized, the preview is non-raycast and in the Y band, and nothing renders under `BattleMapScene`.
+- `translation.test.ts` / `tracing.test.ts`: translating or vertex-editing a `radial_spoke` draft clears the record.
+- `importBoundary.test.ts`: `radialConstruction.ts` is pure.
+- Inspector: the construction record display and the stale-inputs notice.
+
+**Expected size and time** (an estimate; the actual counts and wall-clock times are recorded in the AT1 report): about 60–90 new backend tests and about 50–80 new frontend tests. The targeted files should take a few seconds, the full backend suite about 10–15 s, the full frontend suite about 45–55 s, plus the production build.
+
+**Commands:** targeted files first, then `cd backend && npm test`, then `cd frontend && npm test && npm run build`. Stop on any failure.
+
+### 15.15 Human acceptance (live, with the real reference and canon)
+
+The real world data validates the generic mechanism. Nothing here is encoded in code.
+
+**Preconditions.** The Imperial City reference layer is visible. The intended inner and outer ring features are traced (with the §4.1 circle constructor where the evidence is circular) and **accepted**. Record their ids and revisions.
+
+1. **Select inputs.** Open RADIAL CONSTRUCT, then pick the inner and outer rings on the map. Both show as eligible accepted features with their revisions. A draft feature is not offered.
+2. **Center.** Use "center of" the inner ring's circle construction, or place the center by click or entry. Both rings report the center inside.
+3. **Exact divisions.** Set `N` to the number of radial divisions visible in the raster. Use Aim spoke 0 on one raster radial wall, then fine-tune `θ₀`. Every preview spoke lies over its raster radial wall, and zooming in shows each endpoint on the inner and outer rings.
+4. **Deterministic offset.** Change `θ₀` by +5°: every spoke rotates by 5°. Revert: the preview is identical to before. Set `θ₀ + 360/N`: the same lines appear with the indices shifted.
+5. **Failure reporting.** Move the center outside the inner ring: Create is disabled with a clear reason. Restore the center.
+6. **Persist as drafts.** Create. N DRAFT-styled spokes appear. A city-scope `/query` (via `curl` or dev tools) does not contain them. The inner and outer rings still show their original revisions.
+7. **Inspect and edit.** Open a spoke: the construction record is shown. Edit one draft's endpoint in the tracer: its record is cleared. Delete that draft, or recreate it.
+8. **Explicit accept.** Tick the spokes, choose Accept selected, and confirm the count. They are accepted at revision 1, `/query` now contains them, and the digest changed. Lock one spoke.
+9. **Persistence.** Reload the browser and restart the backend. Drafts, accepted spokes, and the lock are unchanged.
+10. **Input change without rewriting.** Revise the outer ring slightly and accept it. Every spoke is unchanged, and the inspector shows the stale-inputs notice. Reconstruct in revision mode: it is refused while one spoke is locked, and the refusal names that spoke. Unlock it, then reconstruct: draft revisions appear. Accept them: same ids, revision 2.
+11. **Input safety.** Throughout the procedure, no accepted input ring changes revision or geometry except through the editor's own explicit revise in step 10.
+12. **Authorization.** As a player or temporary admin, the tool is absent and a direct `POST /constructions/radial` returns 403.
+
+### 15.16 Non-goals
+
+This slice does not plan or implement:
+
+- procedural city generation, district generation, or automatic district, scope, or polygon creation from spokes;
+- generation worksets/batches, district fulfillment ledgers, or density/intensity nodes;
+- polygon clipping, boolean operations, or buffering (only ray/ring intersection);
+- general CAD, parametric scripting, expressions, or dependency-driven regeneration;
+- AI geometry generation;
+- open-linestring or multi-ring boundaries, or non-radial pattern constructors;
+- any WP7 work (import/export, legacy promotion, the initial register), or upstream CITY_NET synchronization.
+
+### 15.17 Completion gate
+
+AT1 is complete when all of the following hold:
+
+- every §15.14 test passes, and both full suites and the production build pass;
+- the live-preview timing is recorded (§15.5);
+- human acceptance §15.15 steps 1–12 pass;
+- a review finds no world-specific identifiers in code or tests, and no path by which construction writes non-draft state or modifies an input.
+
+Then stop for human acceptance and commit authorization. WP7 follows unchanged.

@@ -3,6 +3,7 @@
 **Status date:** 2026-09-25  
 **Current implementation branch:** `feature/canonical-geography`  
 **Latest pushed accepted implementation commit:** `59ca91d` — Add canonical geography anchors scopes and connections (WP6)  
+**Post-WP6 architecture amendment commit:** `1dd443b` — Reconcile post-WP6 generation architecture (documentation only; pushed)\
 **Canonical-geography plan baseline commit:** `2eaff3e` — Approve canonical geography implementation plan  
 **Requirements/architecture baseline commit:** `8f02ed4` — Define generation hierarchy and canonical city scale  
 **Imperial City generation bible commit:** `2b446c2` — Add Imperial City generation bible  
@@ -23,7 +24,8 @@
 - The persistent calibrated reference-layer slice is complete, human-accepted, merged to `main`, and pushed.
 - `docs/CANONICAL_GEOGRAPHY_PLAN.md` is approved and committed (`2eaff3e`).
 - Canonical Geography WP1–WP6 are complete, reviewed, human-accepted, committed, and pushed on `feature/canonical-geography`. WP6 — anchors, connections, scopes, map selection, context inspection, and recoverable retirement — is commit `59ca91d` (`Add canonical geography anchors scopes and connections`).
-- A documentation-only post-WP6 architecture amendment is in progress (see Immediate Objective).
+- The documentation-only post-WP6 architecture amendment is complete, committed and pushed as `1dd443b`, and accepted as the current architectural baseline.
+- The human owner chose to insert a small canonical-geometry authoring-tools slice before WP7 (option B below). That slice, **AT1 — deterministic radial construction**, is planned in `docs/CANONICAL_GEOGRAPHY_PLAN.md` §15 and has not started.
 - WP7 has not started.
 
 ## Primary Product Objective
@@ -94,7 +96,8 @@ The approved capability establishes a governed, versioned canonical spatial subs
 - **WP3–WP4 pushed checkpoint:** commit `7e91644` (`Add canonical geography query and rendering`).
 - **WP5 — Tracing and feature editing:** complete, human-accepted, Sol-reviewed, committed and pushed as `0882790` (`Add canonical geography tracing and editing`).
 - **WP6 — Anchors, connections, scopes UI:** complete, human-accepted, Sol-reviewed clean, committed and pushed as `59ca91d` (`Add canonical geography anchors scopes and connections`).
-- **WP7 — Import/export, legacy promotion, Bible-derived initial register, final verification:** not started.
+- **Pre-WP7 slice AT1 — Deterministic radial construction (R-014, A-020):** planned (`docs/CANONICAL_GEOGRAPHY_PLAN.md` §15), pending human review; not started.
+- **WP7 — Import/export, legacy promotion, Bible-derived initial register, final verification:** not started; scope unchanged.
 
 ### Canonical-geography capability now available through WP6
 
@@ -194,7 +197,7 @@ Generation-facing work must preserve the following decisions:
 - Lower-level feasibility must be able to feed back upward rather than forcing impossible allocations.
 - District planning should later support multiple density/intensity nodes with falloff rather than one flat density value, including city-center pull and district-specific centers (R-031, ARCHITECTURE §8).
 - Ordinary urban fabric should remain lightweight; selected structures may later be promoted into semantic POIs.
-- A future canonical-geometry authoring aid should support exact parametric radial/spoke walls from a chosen center between accepted inner/outer boundaries; this is deterministic construction tooling, not procedural city generation (R-014, A-020).
+- A canonical-geometry authoring aid supports exact parametric radial/spoke geometry from a chosen center between accepted inner/outer boundaries. This is deterministic construction tooling, not procedural city generation (R-014, A-020), and is planned as pre-WP7 slice AT1 (`docs/CANONICAL_GEOGRAPHY_PLAN.md` §15).
 
 ## Known Physical Scale
 
@@ -210,11 +213,18 @@ The current Imperial City reference layer was explicitly corrected to the canoni
 
 ## Immediate Objective
 
-Complete, review, and separately commit the **documentation-only post-WP6 architecture amendment** before WP7.
+Implement **pre-WP7 slice AT1 — deterministic radial construction** as specified in `docs/CANONICAL_GEOGRAPHY_PLAN.md` §15, once the human owner has reviewed and approved that plan section.
 
-The amendment reconciles `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/CANONICAL_GEOGRAPHY_PLAN.md`, and this file with the lessons of real WP6 use: independent district/island geometry and derived intersections; optional island groups; demand-created generation worksets/batches with district fulfillment awareness; spatially varying district intensity; and a deterministic radial/spoke-wall authoring aid. It changes no code and does not alter WP7 scope.
+AT1 is a small, generic canonical-geometry authoring tool that executes R-014 / A-020. Its parts:
 
-WP7 remains responsible for interchange import/export, legacy promotion, the Bible-derived `docs/canonical/initial_register.v1.json`, and final end-to-end verification.
+- A center, two accepted closed boundaries, a spoke count `N`, and an angular offset `θ₀` produce a deterministic preview.
+- Persisting creates one draft linestring feature per spoke, with a `radial_spoke` construction record, in one all-or-nothing transaction.
+- Acceptance stays explicit and per record, through the existing lifecycle.
+- Nothing rewrites accepted canon or inputs automatically.
+
+AT1 contains no world-specific code, no district or scope creation, no clipping, and no generation.
+
+WP7 comes immediately after AT1, with its scope unchanged. WP7 remains responsible for interchange import/export, legacy promotion, the Bible-derived `docs/canonical/initial_register.v1.json`, and final end-to-end verification.
 
 The canonical-geography slice remains a constraint substrate. It does not yet implement the future generation-workset planner or district density model.
 
@@ -235,12 +245,13 @@ Do not yet implement:
 
 ## Next Planned Repository Step
 
-1. Human review of the post-WP6 documentation amendment.
-2. Commit and push the amendment separately on `feature/canonical-geography` (only when the user authorizes the commit).
-3. Then make an explicit human decision between:
-   - **A.** proceed directly to WP7; or
-   - **B.** insert a small canonical-geometry authoring-tools slice for the deterministic radial/spoke-wall constructor (R-014, A-020) before WP7.
-4. Keep the noted CITY_NET upstream update parked; evaluate upstream sync/contribution strategy only at a stable checkpoint.
+1. Human review of the AT1 plan (`docs/CANONICAL_GEOGRAPHY_PLAN.md` §15) and this status update.
+2. Commit the plan update separately on `feature/canonical-geography`, only when the user authorizes the commit.
+3. Implement AT1 on `feature/canonical-geography`, validate it per §15.14, run human acceptance per §15.15, and stop for acceptance and commit authorization.
+4. Then proceed to WP7, with its scope unchanged.
+5. Keep the noted CITY_NET upstream update parked. Evaluate upstream sync/contribution strategy only at a stable checkpoint.
+
+The post-WP6 decision between proceeding directly to WP7 (A) and inserting the authoring-tools slice first (B) has been made: **B**.
 
 Implementation must not move back to `main` mid-slice.
 
