@@ -67,7 +67,7 @@ const no = (reason: string): Availability => ({ enabled: false, reason });
  * `openRevisionId` is the id of an open draft revision of this accepted row, if one is
  * loaded; revise and draft-from-history point at it rather than creating a second.
  */
-export function featureActions(f: CanonicalFeature, openRevisionId: number | null = null): FeatureActions {
+export function featureActions(f: Pick<CanonicalFeature, 'lifecycle_state' | 'is_locked'>, openRevisionId: number | null = null): FeatureActions {
   const open = f.lifecycle_state === 'draft' || f.lifecycle_state === 'proposed';
   const accepted = f.lifecycle_state === 'accepted';
   const locked = accepted && f.is_locked;
@@ -133,11 +133,15 @@ export interface FeatureForm {
   navigable: string;
   /** Route only: width in world units, '' when unspecified. */
   width_wu: string;
+  /** Anchor part linkage (plan §3.3, WP6): the anchor this feature is a part of, or '' for none. */
+  anchor_id: number | '';
+  /** Part role; required by the form when anchor_id is set ('' otherwise). */
+  part_role: string;
 }
 
 export const emptyForm = (feature_class: FeatureClass = 'land'): FeatureForm => ({
   feature_class, geometry_type: CLASS_GEOMETRY_TYPES[feature_class][0], kind: '', constraint_strength: 'hard',
-  name: '', description: '', notes: '', navigable: '', width_wu: '',
+  name: '', description: '', notes: '', navigable: '', width_wu: '', anchor_id: '', part_role: '',
 });
 
 export function formFromFeature(f: CanonicalFeature): FeatureForm {
@@ -152,6 +156,8 @@ export function formFromFeature(f: CanonicalFeature): FeatureForm {
     notes: f.notes ?? '',
     navigable: typeof a.navigable === 'string' ? a.navigable : '',
     width_wu: typeof a.width_wu === 'number' ? String(a.width_wu) : '',
+    anchor_id: f.anchor_id ?? '',
+    part_role: f.part_role ?? '',
   };
 }
 
@@ -178,6 +184,8 @@ export function formIssues(form: FeatureForm): string[] {
     const w = Number(form.width_wu);
     if (!Number.isFinite(w) || w <= 0) issues.push('width must be a positive number of world units');
   }
+  if (form.anchor_id !== '' && !form.part_role) issues.push('an anchor part needs a part role');
+  if (form.anchor_id === '' && form.part_role) issues.push('a part role needs an anchor');
   return issues;
 }
 
@@ -206,6 +214,8 @@ export function draftBody(form: FeatureForm, geometry: unknown, construction: Co
     geometry,
     construction,
     attributes: formAttributes(form),
+    anchor_id: form.anchor_id === '' ? null : form.anchor_id,
+    part_role: form.anchor_id === '' ? null : form.part_role || null,
   };
   // Undefined leaves saved evidence as it was; null or a snapshot replaces it.
   if (evidence !== undefined) body.evidence = evidence;

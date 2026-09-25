@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
-import type { CanonicalGeographyData, CanonicalApiError, CanonicalRevision } from './api';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
+import type { CanonicalGeographyData, CanonicalApiError, CanonicalResult, CanonicalRevision } from './api';
 import { canonicalApi } from './api';
-import type { CanonicalFeature, FeatureClass, GeometryType, LifecycleState, WorldXZ } from './types';
+import type { CanonicalAnchor, CanonicalFeature, FeatureClass, GeometryType, GeoScope, LifecycleState, PartRole, WorldXZ } from './types';
 import { formatArea, formatLength, squareWorldUnitsToHectares, worldUnitsToMeters } from './physicalScale';
 import { distance, geometryIssues, lineLength, polygonArea, ringPerimeter, type Construction } from './geometry';
 import {
@@ -13,12 +13,26 @@ import {
   formIssues, geometryMetrics, type Availability, type EvidenceSnapshot, type FeatureForm,
 } from './featureEditing';
 import { worldToSource, type ReferenceLayer } from '../referenceLayers';
+import { PART_ROLES, PART_ROLE_DEFAULTS } from './anchors';
+import { createLandSelection, pruneSelection, selectableLand, type LandSelectionStore } from './landSelection';
+import type { PanelOps } from './panelUi';
+import { AnchorsPanel } from './AnchorsPanel';
+import { ScopesPanel } from './ScopesPanel';
+import { stageScopeChange } from './scopeRequests';
+import { ConnectionsPanel } from './ConnectionsPanel';
+import { scopeLabel } from './scopes';
+import { createMapPickStore, type MapPickStore, type PickRequest } from './mapPick';
+import { featureLabel } from './connections';
+import { ContextPane } from './ContextPane';
+import { NO_SPATIAL, spatialFromBundle, spatialPreview, type ScopeSpatial } from './scopeContents';
+import type { ScopeOverlay } from './mapPick';
 
 /**
  * The primary administrator's canonical-geography panel (plan §7.2): the feature list and
  * inspector, tracing/editing of one feature at a time, and the lifecycle actions of WP2 —
  * save draft, accept (with confirmation), revise, lock/unlock, retire/restore, replacement
- * state and revision history. Anchors, connections and scopes are WP6; import is WP7.
+ * state and revision history (WP5); and the anchor register, scopes with explicit land
+ * membership, and required connections (WP6, in their own tabs). Import is WP7.
  *
  * Every action is one request to the lifecycle API, and nothing here invents a shortcut
  * around it:
@@ -49,7 +63,20 @@ interface Props {
   overlayVisible: boolean;
   onToggleOverlay: () => void;
   onClose: () => void;
+  /**
+   * The land multi-selection shared with the in-scene LandSelectionTool. Optional so the
+   * panel can stand alone (tests); App passes the one the scene draws.
+   */
+  selection?: LandSelectionStore;
+  /**
+   * Click-to-inspect state shared with the in-scene CanonicalPickTool. Optional like
+   * `selection`; App passes the one the scene uses.
+   */
+  pick?: MapPickStore;
 }
+
+type Tab = 'features' | 'anchors' | 'scopes' | 'connections';
+const TABS: [Tab, string][] = [['features', 'FEATURES'], ['anchors', 'ANCHORS'], ['scopes', 'SCOPES'], ['connections', 'CONNECTIONS']];
 
 // ── evidence and readout (the raster-aware part of this module) ─────────────
 
@@ -126,6 +153,8 @@ interface Editing {
   /** The draft being edited, or null for a new one. */
   feature: CanonicalFeature | null;
   form: FeatureForm;
+  /** A new scope_boundary traced for this scope: on save it is linked to the scope's draft (never accepted). */
+  boundaryFor?: GeoScope;
 }
 
 type Confirm =
@@ -139,7 +168,25 @@ const isOpenState = (s: LifecycleState) => s === 'draft' || s === 'proposed';
 
 export function CanonicalGeographyManager({
   token, data, referenceLayers, refresh, session, tracingActive, onTracingChange, overlayVisible, onToggleOverlay, onClose,
+  selection: selectionProp, pick: pickProp,
 }: Props) {
+  const ownSelection = useMemo(() => createLandSelection(), []);
+  const selection = selectionProp ?? ownSelection;
+  const ownPick = useMemo(() => createMapPickStore(), []);
+  const pick = pickProp ?? ownPick;
+  const pickState = useSyncExternalStore(pick.subscribe, pick.getState);
+  const [scopeSelectedId, setScopeSelectedId] = useState<number | null>(null);
+  const [showArchive, setShowArchive] = useState(false);
+  const [search, setSearch] = useState('');
+  const [chooser, setChooser] = useState<PickRequest | null>(null);
+  /**
+   * What the left context pane shows: a scope (with its spatial contents) and/or a feature.
+   * Keeping the scope while a feature is focused lets the pane go back to it.
+   */
+  const [ctx, setCtx] = useState<{ scopeId: number | null; featureId: number | null; focus: 'scope' | 'feature' } | null>(null);
+  const [scopeBundle, setScopeBundle] = useState<{ scopeId: number; spatial: ScopeSpatial; error: string | null } | null>(null);
+  const inspectorRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<Tab>('features');
   const [states, setStates] = useState<Record<LifecycleState, boolean>>({ accepted: true, draft: true, proposed: true, retired: false });
   const [classFilter, setClassFilter] = useState<FeatureClass | ''>('');
   const [retired, setRetired] = useState<CanonicalFeature[]>([]);
@@ -158,12 +205,43 @@ export function CanonicalGeographyManager({
 
   const loadRetired = useCallback(async () => {
     const res = await canonicalApi.list<CanonicalFeature>(token, 'features', ['retired']);
-    if (res.ok) setRetired(res.data);
+    if (res.ok) setRetired(Array.isArray(res.data) ? res.data : []);
     else setError(res.error);
   }, [token]);
 
+  // The archive count is one editor-only read when the panel opens; the rows stay out of the
+  // active list unless the archive is opened explicitly.
+  useEffect(() => {
+    let live = true;
+    void canonicalApi.list<CanonicalFeature>(token, 'features', ['retired']).then((res) => {
+      if (live && res.ok && Array.isArray(res.data)) setRetired(res.data);
+    });
+    return () => { live = false; };
+  }, [token]);
+
+  // The scene enters the canonical view on open when map selection is on (the default), so
+  // a click on canonical geometry inspects it rather than reaching inherited map handlers.
+  const openedScene = useRef(false);
+  useEffect(() => {
+    if (openedScene.current) return;
+    openedScene.current = true;
+    if (pick.getState().inspecting) onTracingChange(true);
+  }, [pick, onTracingChange]);
+  // Outline, in the scene, whatever the feature inspector shows.
+  useEffect(() => {
+    pick.update(s => (s.highlightId === selectedId ? s : { ...s, highlightId: selectedId }));
+  }, [pick, selectedId]);
+  useEffect(() => () => { pick.update(s => ({ ...s, highlightId: null, hoverId: null, scopeOverlay: null, request: null })); }, [pick]);
+
   // The trace belongs to this panel: closing the panel ends it, and the scene leaves the tracing view.
   useEffect(() => () => { session.update(() => IDLE_TRACE); }, [session]);
+  // Picking belongs to the panel too; the selection itself survives (it is only highlighted).
+  useEffect(() => () => { selection.update(s => (s.picking ? { ...s, picking: false } : s)); }, [selection]);
+  // A refresh may retire or revise land; keep the selection to accepted land only.
+  useEffect(() => {
+    const ids = new Set(selectableLand(data.features).map(f => f.id));
+    selection.update(s => pruneSelection(s, ids));
+  }, [data.features, selection]);
 
   const allFeatures = useMemo(() => {
     const byId = new Map<number, CanonicalFeature>();
@@ -172,7 +250,16 @@ export function CanonicalGeographyManager({
     return [...byId.values()].sort((a, b) => a.id - b.id);
   }, [data.features, retired]);
 
-  const visible = allFeatures.filter(f => states[f.lifecycle_state] && (!classFilter || f.feature_class === classFilter));
+  const matches = (f: CanonicalFeature) => {
+    if (classFilter && f.feature_class !== classFilter) return false;
+    const q = search.trim().toLowerCase().replace(/^#/, '');
+    return !q || String(f.id) === q || (f.name ?? '').toLowerCase().includes(q);
+  };
+  // The active list: accepted canon plus draft/proposal work. Retired canon lives in the
+  // archive, so hundreds of retired revisions never lengthen the everyday list.
+  const visible = allFeatures.filter(f => f.lifecycle_state !== 'retired' && states[f.lifecycle_state] && matches(f));
+  const archived = allFeatures.filter(f => f.lifecycle_state === 'retired');
+  const archivedShown = archived.filter(matches);
   const selected = allFeatures.find(f => f.id === selectedId) ?? null;
   const openRevision = selected && selected.lifecycle_state === 'accepted'
     ? allFeatures.find(f => f.revises_id === selected.id && f.lifecycle_state === 'draft') ?? null : null;
@@ -182,27 +269,51 @@ export function CanonicalGeographyManager({
   const evidenceLayer = referenceLayers.find(l => l.id === evidenceLayerId) ?? null;
 
   /** Run one request; a refusal is shown and nothing on screen is thrown away. */
-  const run = async <T,>(request: () => Promise<{ ok: true; data: T } | { ok: false; error: CanonicalApiError }>,
-    onOk: (data: T) => void | Promise<void>) => {
+  const run = async <T,>(request: () => Promise<CanonicalResult<T>>,
+    onOk: (data: T) => void | Promise<void>, onError?: (error: CanonicalApiError) => void) => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       const res = await request();
-      if (!res.ok) { setError(res.error); return false; }
+      if (!res.ok) { setError(res.error); onError?.(res.error); return false; }
       await onOk(res.data);
       refresh();
-      if (states.retired) await loadRetired();
+      if (showArchive) await loadRetired();
       return true;
     } finally {
       setBusy(false);
     }
   };
 
+  const ops: PanelOps = { token, busy, run, notify: setNotice };
+
+  /**
+   * The scene is in the canonical view while any canonical scene tool wants it. Precedence
+   * among them (tracing > land picking > map inspect) is decided by the tools themselves;
+   * this only keeps inherited map handlers off while one of them is on.
+   */
+  const sceneWanted = (tracing: boolean, picking: boolean, inspecting: boolean) => tracing || picking || inspecting;
+
+  /** Map picking of land: the scene enters the canonical view so inherited handlers are off. */
+  const setPicking = (on: boolean) => {
+    if (on && editing) return; // one scene tool at a time: finish or cancel the trace first
+    selection.update(s => ({ ...s, picking: on, message: null }));
+    onTracingChange(sceneWanted(false, on, pick.getState().inspecting));
+  };
+
+  /** SELECT ON MAP: clicking canonical geometry opens it in the inspector. */
+  const setInspecting = (on: boolean) => {
+    pick.update(s => ({ ...s, inspecting: on }));
+    if (!on) setChooser(null);
+    onTracingChange(sceneWanted(!!editing, selection.getState().picking, on));
+  };
+
   // ── tracing ──────────────────────────────────────────────────────────────
 
-  const startTracing = (feature: CanonicalFeature | null, form: FeatureForm) => {
-    setEditing({ feature, form });
+  const startTracing = (feature: CanonicalFeature | null, form: FeatureForm, boundaryFor?: GeoScope) => {
+    selection.update(s => (s.picking ? { ...s, picking: false } : s));
+    setEditing({ feature, form, boundaryFor });
     setError(null);
     setNotice(null);
     setConfirm(null);
@@ -223,7 +334,7 @@ export function CanonicalGeographyManager({
     setEditing(null);
     setConfirm(null);
     session.update(() => IDLE_TRACE);
-    onTracingChange(false);
+    onTracingChange(sceneWanted(false, selection.getState().picking, pick.getState().inspecting));
   };
 
   const updateForm = (changes: Partial<FeatureForm>) => {
@@ -256,12 +367,50 @@ export function CanonicalGeographyManager({
       () => (existing
         ? canonicalApi.patch<CanonicalFeature>(token, 'features', existing.id, { ...body, expected_draft_version: existing.draft_version })
         : canonicalApi.create<CanonicalFeature>(token, 'features', body)),
-      (saved) => {
+      async (saved) => {
+        const scope = editing.boundaryFor;
         endTracing();
         setSelectedId(saved.id);
-        setNotice(`Saved ${saved.lifecycle_state.toUpperCase()} #${saved.id} (draft v${saved.draft_version}). It is not canon until accepted.`);
+        const note = `Saved ${saved.lifecycle_state.toUpperCase()} #${saved.id} (draft v${saved.draft_version}). It is not canon until accepted.`;
+        if (!scope || existing) {
+          setNotice(note + (saved.anchor_id ? ` Accepting it places anchor #${saved.anchor_id}.` : ''));
+          return;
+        }
+        // A new boundary is linked to the scope's draft (or draft revision): a draft edit, never an accept.
+        const linked = await stageScopeChange(token, data.scopes, scope, { boundary_feature_id: saved.id });
+        if (linked.ok) {
+          setNotice(`${note} Linked as the boundary of ${scopeLabel(scope)} on ${linked.data.draft.lifecycle_state} #${linked.data.draft.id}. `
+            + 'Accept this boundary feature, then accept the scope.');
+        } else {
+          setError({ ...linked.error, error: `${note} Linking it to ${scopeLabel(scope)} was refused: ${linked.error.error}` });
+        }
       });
   };
+
+  /** ADD PART: the WP5 tracing tool, with the part linkage set. */
+  const addPart = (anchor: CanonicalAnchor, role: PartRole) => {
+    const d = PART_ROLE_DEFAULTS[role];
+    startTracing(null, { ...emptyForm(d.feature_class), geometry_type: d.geometry_type, anchor_id: anchor.id, part_role: role,
+      name: `${anchor.name} ${role}` });
+  };
+
+  /**
+   * Edit a feature's geometry with the WP5 tool: a draft directly; accepted canon through
+   * its open draft revision, or a new one (Revise) — never in place.
+   */
+  const editFeatureGeometry = (f: CanonicalFeature) => {
+    if (f.lifecycle_state === 'draft' || f.lifecycle_state === 'proposed') { startTracing(f, formFromFeature(f)); return; }
+    const open = data.features.find(x => x.revises_id === f.id && x.lifecycle_state === 'draft');
+    if (open) { startTracing(open, formFromFeature(open)); return; }
+    void run(() => canonicalApi.revise<CanonicalFeature>(token, 'features', f.id), (draft) => {
+      setSelectedId(draft.id);
+      startTracing(draft, formFromFeature(draft));
+      setNotice(`Editing draft revision #${draft.id} of #${f.id}. Save it, then accept it to replace revision ${f.revision}.`);
+    });
+  };
+
+  const traceBoundary = (scope: GeoScope) =>
+    startTracing(null, { ...emptyForm('scope_boundary'), name: `${scope.name ?? scope.scope_key} boundary` }, scope);
 
   // ── lifecycle actions ────────────────────────────────────────────────────
 
@@ -302,9 +451,8 @@ export function CanonicalGeographyManager({
 
   const retire = (f: CanonicalFeature) => run(() => canonicalApi.retire<CanonicalFeature>(token, 'features', f.id), async () => {
     setConfirm(null);
-    setNotice(`Feature #${f.id} retired. It is hidden from the scene and generator queries, and can be restored.`);
-    setStates(s => ({ ...s, retired: true }));
-    if (!states.retired) await loadRetired();
+    setNotice(`Feature #${f.id} retired and moved to the archive. It is hidden from the scene and generator queries, and can be restored from the archive.`);
+    await loadRetired();
   });
 
   const restore = (f: CanonicalFeature) => run(() => canonicalApi.restore<CanonicalFeature>(token, 'features', f.id), (r) => {
@@ -352,21 +500,129 @@ export function CanonicalGeographyManager({
 
   const select = (id: number | null) => {
     setSelectedId(id);
+    if (id !== null) setCtx(c => ({ scopeId: c?.scopeId ?? null, featureId: id, focus: 'feature' }));
     setHistory(null);
     setDescriptive(null);
     setConfirm(null);
     setError(null);
   };
 
+  /** Show a feature (an anchor part, a boundary) in the feature inspector, where it is accepted. */
+  const inspectFeature = (id: number) => {
+    const f = allFeatures.find(x => x.id === id);
+    if (f && f.lifecycle_state === 'retired') setShowArchive(true);
+    else if (f && !states[f.lifecycle_state]) setStates(s => ({ ...s, [f.lifecycle_state]: true }));
+    setClassFilter('');
+    setSearch('');
+    setChooser(null);
+    setTab('features');
+    select(id);
+  };
+
+  /** Select a scope: the scope tools on the right, its spatial context on the left. */
+  const selectScope = (id: number | null) => {
+    setScopeSelectedId(id);
+    setCtx(c => (id === null ? (c ? { ...c, scopeId: null, focus: 'feature' } : c) : { scopeId: id, featureId: null, focus: 'scope' }));
+  };
+
+  const openScope = (id: number) => {
+    selectScope(id);
+    setChooser(null);
+    setTab('scopes');
+  };
+
+  /** The one live scope whose boundary this feature is, if exactly one: that scope is what a click means. */
+  const owningScope = (featureId: number) => {
+    const owners = data.scopes.filter(sc => sc.revises_id === null && sc.lifecycle_state !== 'retired' && sc.boundary_feature_id === featureId);
+    return owners.length === 1 ? owners[0] : null;
+  };
+
+  // A map click (CanonicalPickTool): one candidate opens it; several open the chooser.
+  // Never while a trace is being edited — the tool is idle then anyway.
+  const handlePick = (r: PickRequest) => {
+    if (editing) return;
+    if (!r.ids.length) {
+      setChooser(null);
+      setNotice(`No canonical geometry at ${r.at.x.toFixed(1)}, ${r.at.z.toFixed(1)}.`);
+    } else if (r.ids.length === 1) {
+      const owner = owningScope(r.ids[0]);
+      if (owner) openScope(owner.id);
+      else inspectFeature(r.ids[0]);
+    } else {
+      setChooser(r);
+    }
+  };
+  const handlePickRef = useRef(handlePick);
+  useEffect(() => { handlePickRef.current = handlePick; });
+  const handledPick = useRef(0);
+  useEffect(() => pick.subscribe(() => {
+    const r = pick.getState().request;
+    if (!r || r.nonce === handledPick.current) return;
+    handledPick.current = r.nonce;
+    handlePickRef.current(r);
+  }), [pick]);
+
+  // Bring the inspector into view when a feature is chosen from the map.
+  useEffect(() => {
+    if (selectedId !== null) inspectorRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [selectedId]);
+
   const requestClose = () => {
     if (editing && trace.vertices.length) { setConfirm({ kind: 'discard' }); return; }
     if (editing) endTracing();
+    selection.update(s => (s.picking ? { ...s, picking: false } : s));
     onClose();
   };
+
+  // ── scope context: spatial contents and the scene overlay ─────────────────
+
+  const ctxScope = ctx?.scopeId != null ? data.scopes.find(sc => sc.id === ctx.scopeId) ?? null : null;
+  const ctxScopeId = ctxScope?.id ?? null;
+  const ctxScopeAccepted = ctxScope?.lifecycle_state === 'accepted';
+  // Accepted scope: the WP3 query bundle, refetched whenever canonical data is.
+  useEffect(() => {
+    if (ctxScopeId === null || !ctxScopeAccepted) return;
+    let live = true;
+    void canonicalApi.query(token, { scope_id: ctxScopeId }).then((res) => {
+      if (!live) return;
+      let spatial: ScopeSpatial | null = null;
+      let error = res.ok ? null : `Spatial contents unavailable: ${res.error.error}`;
+      if (res.ok) {
+        try { spatial = spatialFromBundle(res.data); } catch { error = 'Spatial contents unavailable: unexpected query response'; }
+      }
+      setScopeBundle({ scopeId: ctxScopeId, spatial: spatial ?? NO_SPATIAL, error });
+    });
+    return () => { live = false; };
+  }, [token, ctxScopeId, ctxScopeAccepted, data]);
+
+  const spatial: ScopeSpatial = useMemo(() => {
+    if (!ctxScope) return NO_SPATIAL;
+    if (ctxScope.lifecycle_state !== 'accepted') return spatialPreview(ctxScope, data.features);
+    return scopeBundle?.scopeId === ctxScope.id ? scopeBundle.spatial : NO_SPATIAL;
+  }, [ctxScope, data.features, scopeBundle]);
+  const spatialLoading = !!ctxScope && ctxScopeAccepted && scopeBundle?.scopeId !== ctxScope.id;
+
+  const overlay: ScopeOverlay | null = useMemo(() => (ctxScope && spatial.extent.length ? {
+    scopeId: ctxScope.id, extent: spatial.extent, boundaryFeatureId: ctxScope.boundary_feature_id,
+    inside: spatial.land.inside, crossing: spatial.land.crossing,
+  } : null), [ctxScope, spatial]);
+  useEffect(() => { pick.update(s => (s.scopeOverlay === overlay ? s : { ...s, scopeOverlay: overlay })); }, [pick, overlay]);
+
+  const ctxFeature = ctx?.featureId != null ? allFeatures.find(f => f.id === ctx.featureId) ?? null : null;
 
   // ── render ───────────────────────────────────────────────────────────────
 
   return (
+    <>
+    {ctx && (ctxScope || ctxFeature) && (
+      <ContextPane data={{ ...data, features: allFeatures }} scope={ctxScope} feature={ctxFeature} focus={ctx.focus}
+        spatial={spatial} loading={spatialLoading} error={ctxScope && scopeBundle?.scopeId === ctxScope.id ? scopeBundle.error : null}
+        onHover={(id) => pick.update(s => (s.hoverId === id ? s : { ...s, hoverId: id }))}
+        onInspect={(id) => { pick.update(s => ({ ...s, hoverId: null })); inspectFeature(id); }}
+        onBackToScope={() => setCtx(c => (c ? { ...c, focus: 'scope' } : c))}
+        onOpenScope={openScope}
+        onClose={() => { setCtx(null); pick.update(s => ({ ...s, hoverId: null })); }} />
+    )}
     <div className="panel canonical-geography-manager" role="dialog" aria-label="Canonical geography"
       style={{ position: 'absolute', top: '80px', right: '20px', width: '360px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto',
         zIndex: 1500, padding: '12px' }}>
@@ -379,6 +635,16 @@ export function CanonicalGeographyManager({
         <input type="checkbox" checked={overlayVisible} onChange={onToggleOverlay} aria-label="Show canonical overlay" />
         SHOW_CANONICAL_OVERLAY
       </label>
+      <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px', fontSize: '0.75rem' }}>
+        <input type="checkbox" checked={pickState.inspecting} onChange={() => setInspecting(!pickState.inspecting)} aria-label="Select on map" />
+        SELECT_ON_MAP <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>(click canonical geometry to inspect it)</span>
+      </label>
+      {pickState.inspecting && !editing && !tracingActive && (
+        <div style={{ fontSize: '0.62rem', color: '#ffcc55' }}>
+          Map selection is paused (another view took the scene).{' '}
+          <button className="utility-btn" style={smallBtn} onClick={() => onTracingChange(true)}>RESUME</button>
+        </div>
+      )}
 
       <table style={{ width: '100%', marginTop: '6px', fontSize: '0.7rem' }}>
         <thead><tr><th style={{ textAlign: 'left' }}></th><th>ACCEPTED</th><th>DRAFT</th><th>PROPOSED</th></tr></thead>
@@ -407,6 +673,27 @@ export function CanonicalGeographyManager({
         </div>
       )}
 
+      {chooser && !editing && (
+        <div role="dialog" aria-label="Choose feature at point" style={{ border: '1px solid #ff4fd8', padding: '6px', marginTop: '8px', fontSize: '0.65rem' }}>
+          <strong>{chooser.ids.length} CANONICAL FEATURES HERE — CHOOSE ONE</strong>
+          <ul style={{ listStyle: 'none', padding: 0, margin: '2px 0 0' }}>
+            {chooser.ids.map(id => {
+              const f = allFeatures.find(x => x.id === id);
+              const scopes = data.scopes.filter(sc => sc.boundary_feature_id === id);
+              return (
+                <li key={id}>
+                  <button className="utility-btn" data-choice-id={id} style={{ ...smallBtn, width: '100%', textAlign: 'left' }}
+                    onClick={() => { const owner = owningScope(id); if (owner) openScope(owner.id); else inspectFeature(id); }}>
+                    {f ? featureLabel(f) : `#${id}`}{scopes.length ? ` · boundary of ${scopes.map(sc => sc.name ?? `#${sc.id}`).join(', ')}` : ''}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <button className="utility-btn" style={smallBtn} onClick={() => setChooser(null)}>CANCEL</button>
+        </div>
+      )}
+
       {confirm && <ConfirmPanel confirm={confirm} busy={busy} features={allFeatures} trace={trace}
         onCancel={() => { setConfirm(null); setError(null); }}
         onToggleLockAfter={() => confirm.kind === 'accept' && setConfirm({ ...confirm, lockAfter: !confirm.lockAfter })}
@@ -418,15 +705,35 @@ export function CanonicalGeographyManager({
           else { endTracing(); onClose(); }
         }} />}
 
+      {!editing && (
+        <div role="tablist" aria-label="Canonical geography sections" style={{ display: 'flex', gap: '2px', marginTop: '8px' }}>
+          {TABS.map(([t, label]) => (
+            <button key={t} role="tab" aria-selected={tab === t} className="utility-btn"
+              style={{ ...smallBtn, flex: 1, marginRight: 0, ...(tab === t ? { background: 'var(--dark-green)' } : {}) }}
+              onClick={() => setTab(t)}>{label}</button>
+          ))}
+        </div>
+      )}
+
       {editing ? (
         <TracingPanel
           editing={editing} trace={trace} session={session} tracingActive={tracingActive} busy={busy}
+          anchors={data.anchors}
           issues={[...formIssues(editing.form), ...traceIssues]}
           referenceLayers={referenceLayers} evidenceLayer={evidenceLayer} evidenceLayerId={evidenceLayerId}
           onEvidenceLayer={setEvidenceLayerId} evidenceNote={evidenceNote} onEvidenceNote={setEvidenceNote}
           onForm={updateForm} onResume={() => onTracingChange(true)} onSave={saveDraft}
           onCancel={() => (trace.vertices.length ? setConfirm({ kind: 'discard' }) : endTracing())}
         />
+      ) : tab === 'anchors' ? (
+        <AnchorsPanel data={data} ops={ops} onAddPart={addPart} onInspectFeature={inspectFeature} />
+      ) : tab === 'scopes' ? (
+        <ScopesPanel data={data} ops={ops} selection={selection} onPicking={setPicking} onTraceBoundary={traceBoundary}
+          onEditBoundary={editFeatureGeometry} onInspectFeature={inspectFeature}
+          selectedId={scopeSelectedId} onSelect={selectScope}
+          spatial={ctxScope && ctxScope.id === scopeSelectedId && spatial.source !== 'none' ? spatial : null} />
+      ) : tab === 'connections' ? (
+        <ConnectionsPanel data={data} ops={ops} selection={selection} />
       ) : (
         <>
           <div style={section}>
@@ -435,14 +742,12 @@ export function CanonicalGeographyManager({
               <button className="utility-btn" style={smallBtn} disabled={busy} onClick={() => startTracing(null, emptyForm())}>+ TRACE NEW FEATURE</button>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '0.62rem', marginTop: '4px' }}>
-              {(['accepted', 'draft', 'proposed', 'retired'] as LifecycleState[]).map(s => (
+              {(['accepted', 'draft', 'proposed'] as LifecycleState[]).map(s => (
                 <label key={s}><input type="checkbox" aria-label={`Show ${s}`} checked={states[s]}
-                  onChange={() => {
-                    // Retired rows are not part of the scene's data; they are an editor-only read, made when asked for.
-                    if (s === 'retired' && !states.retired) void loadRetired();
-                    setStates(prev => ({ ...prev, [s]: !prev[s] }));
-                  }} /> {s}</label>
+                  onChange={() => setStates(prev => ({ ...prev, [s]: !prev[s] }))} /> {s}</label>
               ))}
+              <input aria-label="Search features" placeholder="name or #id" value={search} style={{ ...fieldStyle, width: '90px' }}
+                onChange={e => setSearch(e.target.value)} />
               <select aria-label="Filter by class" value={classFilter} style={{ ...fieldStyle, width: 'auto' }}
                 onChange={e => setClassFilter(e.target.value as FeatureClass | '')}>
                 <option value="">all classes</option>
@@ -464,13 +769,43 @@ export function CanonicalGeographyManager({
                 </li>
               ))}
             </ul>
+            <div style={{ fontSize: '0.58rem', opacity: 0.7 }}>{visible.length} shown · click canonical geometry on the map to open it here.</div>
+          </div>
+
+          <div style={section} aria-label="Archive">
+            <button className="utility-btn" style={smallBtn} aria-expanded={showArchive}
+              onClick={() => { if (!showArchive) void loadRetired(); setShowArchive(v => !v); }}>
+              {showArchive ? 'HIDE' : 'SHOW'} RETIRED / ARCHIVE ({archived.length})
+            </button>
+            {showArchive && (
+              <>
+                <ul aria-label="Archive list" style={{ listStyle: 'none', padding: 0, margin: '4px 0 0', maxHeight: '140px', overflowY: 'auto', fontSize: '0.62rem' }}>
+                  {archivedShown.length === 0 && <li style={{ opacity: 0.6 }}>No retired features match.</li>}
+                  {archivedShown.map(f => (
+                    <li key={f.id}>
+                      <button className="utility-btn" data-feature-id={f.id} aria-pressed={f.id === selectedId}
+                        style={{ width: '100%', textAlign: 'left', fontSize: '0.62rem', padding: '2px 4px', marginTop: '2px', opacity: 0.8,
+                          ...(f.id === selectedId ? { background: 'var(--dark-green)' } : {}) }}
+                        onClick={() => select(f.id)}>
+                        #{f.id} {f.name || '(unnamed)'} · {f.feature_class} · RETIRED · r{f.revision}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div style={{ fontSize: '0.58rem', opacity: 0.7 }}>
+                  Retired canon is kept for recovery and history, never deleted. Select one to restore it or see its revisions.
+                </div>
+              </>
+            )}
           </div>
 
           {selected && (
+            <div ref={inspectorRef}>
             <Inspector feature={selected} busy={busy} referenceLayers={referenceLayers} openRevisionId={openRevision?.id ?? null}
               history={history?.featureId === selected.id ? history.rows : null}
               descriptive={descriptive} onDescriptive={setDescriptive}
               onEdit={() => startTracing(selected, formFromFeature(selected))}
+              onEditGeometry={() => editFeatureGeometry(selected)}
               onAccept={() => setConfirm({ kind: 'accept', feature: selected, lockAfter: false, violations: [], warnings: [] })}
               onDelete={() => setConfirm({ kind: 'delete', feature: selected })}
               onRevise={() => void revise(selected)}
@@ -482,7 +817,10 @@ export function CanonicalGeographyManager({
               onLoadHistory={() => void loadHistory(selected)}
               onDraftFromHistory={(rev) => void draftFromHistory(selected, rev)}
               onSelect={select}
+              boundaryOf={data.scopes.filter(sc => sc.boundary_feature_id === (selected.revises_id ?? selected.id))}
+              onOpenScope={openScope}
             />
+            </div>
           )}
         </>
       )}
@@ -492,16 +830,17 @@ export function CanonicalGeographyManager({
         Drafts and proposals are never generator input. Legacy saved maps are not a rollback for canonical geography.
       </p>
     </div>
+    </>
   );
 }
 
 // ── tracing panel ──────────────────────────────────────────────────────────
 
 function TracingPanel({
-  editing, trace, session, tracingActive, busy, issues, referenceLayers, evidenceLayer, evidenceLayerId, onEvidenceLayer,
+  editing, trace, session, tracingActive, busy, anchors, issues, referenceLayers, evidenceLayer, evidenceLayerId, onEvidenceLayer,
   evidenceNote, onEvidenceNote, onForm, onResume, onSave, onCancel,
 }: {
-  editing: Editing; trace: TraceState; session: TracingSession; tracingActive: boolean; busy: boolean; issues: string[];
+  editing: Editing; trace: TraceState; session: TracingSession; tracingActive: boolean; busy: boolean; anchors: CanonicalAnchor[]; issues: string[];
   referenceLayers: ReferenceLayer[]; evidenceLayer: ReferenceLayer | null; evidenceLayerId: number | '';
   onEvidenceLayer: (id: number | '') => void; evidenceNote: string; onEvidenceNote: (v: string) => void;
   onForm: (changes: Partial<FeatureForm>) => void; onResume: () => void; onSave: () => void; onCancel: () => void;
@@ -563,6 +902,27 @@ function TracingPanel({
         <label style={labelStyle}>WIDTH, world units (optional)
           <input aria-label="Width" style={fieldStyle} value={form.width_wu} onChange={e => onForm({ width_wu: e.target.value })} />
         </label>
+      )}
+      <label style={labelStyle}>ANCHOR PART (optional: makes this feature a part of an anchor)
+        <select aria-label="Part of anchor" style={fieldStyle} value={form.anchor_id}
+          onChange={e => onForm(e.target.value === '' ? { anchor_id: '', part_role: '' } : { anchor_id: Number(e.target.value), part_role: form.part_role || 'footprint' })}>
+          <option value="">not an anchor part</option>
+          {anchors.filter(a => a.revises_id === null && a.lifecycle_state !== 'retired').map(a => (
+            <option key={a.id} value={a.id}>#{a.id} {a.name} ({a.anchor_key}){a.lifecycle_state === 'accepted' ? '' : ` [${a.lifecycle_state.toUpperCase()}]`}</option>
+          ))}
+        </select>
+      </label>
+      {form.anchor_id !== '' && (
+        <label style={labelStyle}>PART ROLE
+          <select aria-label="Part role" style={fieldStyle} value={form.part_role} onChange={e => onForm({ part_role: e.target.value })}>
+            {PART_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+      )}
+      {editing.boundaryFor && (
+        <div style={{ fontSize: '0.62rem', color: '#00e5ff' }}>
+          Boundary for {scopeLabel(editing.boundaryFor)}: on save it is linked to that scope&apos;s draft. Accept the boundary, then the scope.
+        </div>
       )}
       <label style={labelStyle}>NAME (optional)
         <input aria-label="Name" style={fieldStyle} value={form.name} onChange={e => onForm({ name: e.target.value })} />
@@ -691,7 +1051,8 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 
 function Inspector({
   feature: f, busy, referenceLayers, openRevisionId, history, descriptive, onDescriptive, onEdit, onAccept, onDelete, onRevise,
-  onRetire, onRestore, onLock, onReplacement, onSaveDescriptive, onLoadHistory, onDraftFromHistory, onSelect,
+  onRetire, onRestore, onLock, onReplacement, onSaveDescriptive, onLoadHistory, onDraftFromHistory, onSelect, boundaryOf = [], onOpenScope,
+  onEditGeometry,
 }: {
   feature: CanonicalFeature; busy: boolean; referenceLayers: ReferenceLayer[]; openRevisionId: number | null;
   history: CanonicalRevision[] | null;
@@ -700,6 +1061,10 @@ function Inspector({
   onEdit: () => void; onAccept: () => void; onDelete: () => void; onRevise: () => void; onRetire: () => void; onRestore: () => void;
   onLock: (locked: boolean) => void; onReplacement: () => void; onSaveDescriptive: () => void; onLoadHistory: () => void;
   onDraftFromHistory: (revision: number) => void; onSelect: (id: number) => void;
+  /** Scopes using this feature as their boundary (a district boundary opens its scope). */
+  boundaryOf?: GeoScope[]; onOpenScope?: (id: number) => void;
+  /** Accepted: edit geometry through its draft revision (Revise), never in place. */
+  onEditGeometry?: () => void;
 }) {
   const a = featureActions(f, openRevisionId);
   const metrics = geometryMetrics(f.geometry_type, f.geometry);
@@ -724,6 +1089,10 @@ function Inspector({
         {f.revises_id && <Row k="REVISES">#{f.revises_id} (built on r{f.base_revision ?? '?'})</Row>}
         {f.attributes && <Row k="ATTRIBUTES">{JSON.stringify(f.attributes)}</Row>}
         {f.construction && <Row k="CONSTRUCTION">{describeConstruction(f.construction as unknown as Construction)}</Row>}
+        {boundaryOf.length > 0 && <Row k="BOUNDARY OF">{boundaryOf.map(sc => (
+          <button key={sc.id} className="utility-btn" style={{ ...smallBtn, marginTop: 0 }} onClick={() => onOpenScope?.(sc.id)}>
+            OPEN {scopeLabel(sc)}{sc.lifecycle_state === 'accepted' ? '' : ` [${sc.lifecycle_state.toUpperCase()}]`}
+          </button>))}</Row>}
         {f.anchor_id && <Row k="ANCHOR PART">anchor #{f.anchor_id}{f.part_role ? ` · ${f.part_role}` : ''}</Row>}
         <Row k="EVIDENCE">
           {evStatus === 'none' ? 'none recorded' : `layer #${String(ev?.reference_layer_id)}`}
@@ -745,6 +1114,8 @@ function Inspector({
         </>}
         {f.lifecycle_state === 'accepted' && <>
           <ActionButton label="REVISE" availability={a.revise} busy={busy} onClick={onRevise} />
+          {onEditGeometry && <ActionButton label="EDIT GEOMETRY (REVISE)" busy={busy} onClick={onEditGeometry}
+            availability={f.is_locked ? { enabled: false, reason: 'locked — unlock it first (its own request)' } : { enabled: true }} />}
           <ActionButton label="EDIT NAME/NOTES" availability={a.editDescriptive} busy={busy}
             onClick={() => onDescriptive({ name: f.name ?? '', description: f.description ?? '', notes: f.notes ?? '' })} />
           {f.is_locked

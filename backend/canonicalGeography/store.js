@@ -253,6 +253,69 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
     });
   };
 
+  /**
+   * GET /anchors/register — the must-exist checklist (plan §5.1, §7.2): every accepted
+   * anchor with its derived placement. Placement is never stored: an anchor is `placed`
+   * exactly when at least one accepted part exists (plan §3.3). Accepted data only, like
+   * every public read — draft parts do not place an anchor and are not listed here.
+   */
+  const anchorRegister = () => readOnly(async (q) => {
+    const anchorRows = await q.all(`SELECT * FROM canonical_anchors WHERE lifecycle_state = 'accepted' ORDER BY id`);
+    const parts = await q.all(
+      `SELECT id, anchor_id, revision, feature_class, geometry_type, part_role, constraint_strength
+         FROM canonical_features WHERE lifecycle_state = 'accepted' AND anchor_id IS NOT NULL ORDER BY id`);
+    const scopeRows = await q.all(
+      `SELECT id, scope_key, scope_kind, name FROM geo_scopes WHERE lifecycle_state = 'accepted'`);
+    const scopesById = new Map(scopeRows.map(s => [s.id, s]));
+
+    const anchorsOut = anchorRows.map((a) => {
+      const own = parts.filter(p => p.anchor_id === a.id);
+      const byRole = {};
+      for (const p of own) {
+        const role = p.part_role || 'unspecified';
+        byRole[role] = (byRole[role] || 0) + 1;
+      }
+      const scope = a.required_scope_id ? scopesById.get(a.required_scope_id) : null;
+      return {
+        id: a.id,
+        anchor_key: a.anchor_key,
+        name: a.name,
+        category: a.category,
+        constraint_strength: a.constraint_strength,
+        must_exist: !!a.must_exist,
+        replacement_state: a.replacement_state,
+        is_locked: !!a.is_locked,
+        revision: a.revision,
+        required_scope_id: a.required_scope_id,
+        // Only accepted scopes are named on a public read; an unaccepted one is reported as such.
+        required_scope: a.required_scope_id
+          ? (scope ? { id: scope.id, scope_key: scope.scope_key, scope_kind: scope.scope_kind, name: scope.name, accepted: true }
+            : { id: a.required_scope_id, accepted: false })
+          : null,
+        status: own.length ? 'placed' : 'unplaced',
+        placed: own.length > 0,
+        part_summary: {
+          count: own.length,
+          by_role: byRole,
+          parts: own.map(p => ({
+            feature_id: p.id, revision: p.revision, feature_class: p.feature_class, geometry_type: p.geometry_type,
+            part_role: p.part_role, constraint_strength: p.constraint_strength,
+          })),
+        },
+      };
+    });
+    const unplaced = anchorsOut.filter(a => !a.placed);
+    return {
+      anchors: anchorsOut,
+      summary: {
+        total: anchorsOut.length,
+        placed: anchorsOut.length - unplaced.length,
+        unplaced: unplaced.length,
+        unplaced_must_exist: unplaced.filter(a => a.must_exist).map(a => a.id),
+      },
+    };
+  });
+
   // ── creation: drafts (editor) and proposals (software) ────────────────────
 
   /** POST /:entity — a draft, never canon. Generated provenance belongs on /proposals. */
@@ -651,6 +714,7 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
     list,
     get: getOne,
     history,
+    anchorRegister,
     createDraft,
     createProposal,
     patch,

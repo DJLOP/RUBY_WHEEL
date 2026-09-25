@@ -2,9 +2,11 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore
 import * as THREE from 'three';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import {
-  SnapIndex, SNAP_RADIUS_PX, addPoint, canCloseOnFirstVertex, closeRing, constructionPreview, deleteVertex, insertVertex, isClick,
-  moveVertex, resolveSnap, type SnapSource, type TracingSession, type TraceState,
+  SnapIndex, SNAP_RADIUS_PX, addPoint, beginTranslate, canCloseOnFirstVertex, canTranslate, closeRing, constructionPreview, deleteVertex,
+  hitsTraceBody, insertVertex, isClick, moveVertex, resolveSnap, translateFrom, translateSnapshot,
+  type SnapSource, type TracingSession, type TraceState, type TranslateSnapshot,
 } from './tracing';
+import { distance } from './geometry';
 import type { WorldXZ } from './types';
 import { CANONICAL_BAND_CEILING_Y, CANONICAL_POINT_Y } from './overlay';
 
@@ -27,6 +29,12 @@ import { CANONICAL_BAND_CEILING_Y, CANONICAL_POINT_Y } from './overlay';
  * - Clicking an edge's midpoint handle inserts a vertex there (and it can be dragged on).
  * - Clicks and drags snap to saved vertices and edges within SNAP_RADIUS_PX, so shared
  *   shorelines coincide.
+ * - Dragging the body of the geometry (inside a closed polygon, on a line, on a point)
+ *   moves the whole shape by one world delta; its construction record moves with it, and
+ *   UNDO restores the previous position. The press is taken in the capture phase, so the
+ *   camera never starts panning — but never when it lands on a vertex or midpoint handle,
+ *   which keep precedence. A press on the body that does not move stays an ordinary click.
+ *   Only the trace session moves: accepted canon is edited only via a draft revision.
  *
  * The ground point is the Y=0 plane under the pointer — the inherited drawing tools' ray —
  * so the (non-raycast) reference raster never intercepts a click. The only raycastable
@@ -117,6 +125,8 @@ export function TracingTool({ session, features, setIsDragging }: Props) {
    * onto a neighbouring feature instead of closing.
    */
   const pendingClose = useRef<{ x: number; y: number } | null>(null);
+  /** A press on the geometry's body: a whole-shape move once it passes the click threshold. */
+  const body = useRef<{ screen: { x: number; y: number }; start: WorldXZ; base: TranslateSnapshot; moving: boolean } | null>(null);
   const handleGroup = useRef<THREE.Group>(null);
 
   // Everything the DOM listeners need, current without re-binding them per render.
@@ -137,7 +147,45 @@ export function TracingTool({ session, features, setIsDragging }: Props) {
       if (e.button !== 0) return;
       down.current = { x: e.clientX, y: e.clientY };
     };
+    /** Whether the press lands on a vertex or edge-midpoint handle (which keep precedence). */
+    const onHandle = (s: TraceState, p: WorldXZ, perPx: number) => {
+      if (s.vertices.length > MAX_HANDLES || s.geometryType === 'point') return false;
+      if (s.vertices.some(v => distance(v, p) <= (HANDLE_PX + 2) * perPx)) return true;
+      const n = s.vertices.length;
+      for (let i = 0; i < (s.closed ? n : n - 1); i++) {
+        const a = s.vertices[i];
+        const b = s.vertices[(i + 1) % n];
+        if (distance({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }, p) <= (MIDPOINT_PX + 2) * perPx) return true;
+      }
+      return false;
+    };
+    // Capture phase: a press on the shape's body is ours before the camera (or R3F) sees it.
+    const onDownCapture = (e: PointerEvent) => {
+      const s = session.getState();
+      if (e.button !== 0 || e.target !== el || !canTranslate(s) || s.mode !== 'vertex') return;
+      const { camera: cam } = live.current;
+      const p = groundPoint(cam, el, e.clientX, e.clientY);
+      if (!p) return;
+      const perPx = worldPerPixels(cam, el, e.clientX, e.clientY, 1);
+      if (onHandle(s, p, perPx)) return;
+      if (!hitsTraceBody(s, p, (s.geometryType === 'point' ? HANDLE_PX + 2 : SNAP_RADIUS_PX / 2) * perPx)) return;
+      e.stopPropagation();
+      down.current = { x: e.clientX, y: e.clientY };
+      body.current = { screen: { x: e.clientX, y: e.clientY }, start: p, base: translateSnapshot(s), moving: false };
+    };
     const onMove = (e: PointerEvent) => {
+      const b = body.current;
+      if (b) {
+        if (!b.moving) {
+          if (isClick(b.screen, { x: e.clientX, y: e.clientY })) return;
+          b.moving = true;
+          live.current.setIsDragging(true);
+          session.update(beginTranslate);
+        }
+        const p = groundPoint(live.current.camera, el, e.clientX, e.clientY);
+        if (p) session.update(s => translateFrom(s, b.base, p.x - b.start.x, p.z - b.start.z));
+        return;
+      }
       if (drag.current !== null) {
         if (pendingClose.current) {
           if (isClick(pendingClose.current, { x: e.clientX, y: e.clientY })) return;
@@ -153,6 +201,13 @@ export function TracingTool({ session, features, setIsDragging }: Props) {
       session.update(s => ({ ...s, hover: hit ? hit.point : null, hoverSnap: hit ? hit.kind : null }));
     };
     const onUp = (e: PointerEvent) => {
+      const b = body.current;
+      body.current = null;
+      if (b?.moving) {
+        down.current = null;
+        live.current.setIsDragging(false);
+        return;
+      }
       const start = down.current;
       down.current = null;
       if (drag.current !== null) {
@@ -173,16 +228,18 @@ export function TracingTool({ session, features, setIsDragging }: Props) {
     };
     const onLeave = () => session.update(s => (s.hover ? { ...s, hover: null, hoverSnap: null } : s));
 
+    window.addEventListener('pointerdown', onDownCapture, { capture: true });
     el.addEventListener('pointerdown', onDown);
     el.addEventListener('pointerleave', onLeave);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => {
+      window.removeEventListener('pointerdown', onDownCapture, { capture: true });
       el.removeEventListener('pointerdown', onDown);
       el.removeEventListener('pointerleave', onLeave);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      if (drag.current !== null) live.current.setIsDragging(false);
+      if (drag.current !== null || body.current?.moving) live.current.setIsDragging(false);
     };
   }, [gl, session]);
 

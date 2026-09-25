@@ -69,7 +69,7 @@ import { Overpasses, OverpassPreview } from './components/Overpasses';
 import { Sidewalks } from './components/Sidewalks';
 import { Signs, AutoSignage, useSignEditing, type SignData } from './modules/signs';
 import { ReferenceLayers, ReferenceLayerManager, ReferenceLayerFraming, withPreview, type ReferenceLayerPreview, type ReferenceFrameRequest } from './modules/referenceLayers';
-import { CanonicalGeographyLayer, CanonicalGeographyManager, TracingTool, createTracingSession } from './modules/canonicalGeography';
+import { CanonicalGeographyLayer, CanonicalGeographyManager, CanonicalPickTool, LandSelectionTool, TracingTool, createLandSelection, createMapPickStore, createTracingSession } from './modules/canonicalGeography';
 import { type RemoteFont } from './utils/fontLoader';
 import type { LayoutType, WaterType, RoundaboutDensity } from './cityGen';
 import { GlobalCameraCapture, CursorPivotControls, CameraController, KeyboardPan, AdaptiveClipping } from './components/Camera';
@@ -111,6 +111,10 @@ function App() {
   const [canonicalOverlayVisible, setCanonicalOverlayVisible] = useState(true);
   /** The one feature being traced/edited; shared by the in-scene tool and the manager without re-rendering the app. */
   const canonicalTracing = useMemo(() => createTracingSession(), []);
+  /** The multi-selection of accepted land (islands), shared by the in-scene picker and the manager. */
+  const canonicalLandSelection = useMemo(() => createLandSelection(), []);
+  /** Click-to-inspect of canonical geometry: the scene tool reports clicks, the manager opens the feature. */
+  const canonicalMapPick = useMemo(() => createMapPickStore(), []);
   /** A pending request to look straight down at one layer. The nonce makes it repeatable. */
   const [referenceFrameRequest, setReferenceFrameRequest] = useState<ReferenceFrameRequest | null>(null);
   /** Unsaved reference-layer calibration, shown in this client's scene only. */
@@ -1579,6 +1583,8 @@ function App() {
           referenceLayers={referenceLayers}
           refresh={fetchCanonicalGeography}
           session={canonicalTracing}
+          selection={canonicalLandSelection}
+          pick={canonicalMapPick}
           tracingActive={view === 'canonical_geo'}
           onTracingChange={(active) => setView(active ? 'canonical_geo' : 'list')}
           overlayVisible={canonicalOverlayVisible}
@@ -2833,6 +2839,15 @@ function App() {
             {/* Tracing one canonical feature: primary admin, world branch, its own view only. */}
             {view === 'canonical_geo' && showCanonicalGeographyManager && isPrimaryAdmin && (
               <TracingTool session={canonicalTracing} features={canonicalGeography.features} setIsDragging={setIsDragging} />
+            )}
+            {/* Selected islands are highlighted while the manager is open; map picking only in the canonical view. */}
+            {showCanonicalGeographyManager && isPrimaryAdmin && (
+              <LandSelectionTool selection={canonicalLandSelection} features={canonicalGeography.features} active={view === 'canonical_geo'} />
+            )}
+            {/* Click canonical geometry to inspect it: ground-point hit test, no raycast meshes; idle while tracing or land picking. */}
+            {showCanonicalGeographyManager && isPrimaryAdmin && (
+              <CanonicalPickTool pick={canonicalMapPick} session={canonicalTracing} selection={canonicalLandSelection}
+                features={canonicalGeography.features} active={view === 'canonical_geo'} />
             )}
             <WorldGrid name="city-grid" raycast={() => null} infiniteGrid fadeDistance={750} fadeStrength={1.5} cellSize={1} cellThickness={0.7} sectionSize={10} sectionThickness={1.2} sectionColor={THEMES[currentTheme].gridSection} cellColor={THEMES[currentTheme].gridCell} />
             {token !== '' && (

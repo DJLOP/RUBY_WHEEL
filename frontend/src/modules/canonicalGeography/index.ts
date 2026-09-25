@@ -5,6 +5,12 @@
 export { CanonicalGeographyLayer } from './CanonicalGeographyLayer';
 export { CanonicalGeographyManager } from './CanonicalGeographyManager';
 export { TracingTool } from './TracingTool';
+export { LandSelectionTool } from './LandSelectionTool';
+export { CanonicalPickTool } from './CanonicalPickTool';
+export { createMapPickStore } from './mapPick';
+export type { MapPickStore } from './mapPick';
+export { createLandSelection } from './landSelection';
+export type { LandSelectionStore } from './landSelection';
 export { createTracingSession } from './tracing';
 export type { TracingSession } from './tracing';
 export { fetchCanonicalGeography, EMPTY_CANONICAL_GEOGRAPHY, CANONICAL_API, canonicalApi } from './api';

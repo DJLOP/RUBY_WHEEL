@@ -86,7 +86,7 @@ function onSegment(px: number, pz: number, a: WorldXZ, b: WorldXZ): boolean {
 }
 
 /** 'inside' | 'boundary' | 'outside' against one open ring. */
-function locateInRing(px: number, pz: number, ring: WorldXZ[]): 'inside' | 'boundary' | 'outside' {
+export function locateInRing(px: number, pz: number, ring: WorldXZ[]): 'inside' | 'boundary' | 'outside' {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const a = ring[j];

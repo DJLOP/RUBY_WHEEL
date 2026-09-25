@@ -62,12 +62,24 @@ export interface TraceState {
   snapping: boolean;
   /** Last refusal or notice, in words. */
   message: string | null;
+  /**
+   * Geometry before each whole-shape translation, most recent last, so UNDO can reverse a
+   * move. Any other geometry edit clears it: undo then keeps its per-vertex meaning.
+   */
+  translateUndo: TranslateSnapshot[];
+}
+
+/** The geometry a translation starts from (and UNDO restores). */
+export interface TranslateSnapshot {
+  vertices: WorldXZ[];
+  holes: WorldXZ[][];
+  construction: Construction | null;
 }
 
 export const IDLE_TRACE: TraceState = {
   active: false, featureId: null, geometryType: 'polygon', vertices: [], closed: false, holes: [],
   construction: null, mode: 'vertex', constructionPoints: [], selectedVertex: null,
-  hover: null, hoverSnap: null, snapping: true, message: null,
+  hover: null, hoverSnap: null, snapping: true, message: null, translateUndo: [],
 };
 
 export interface TraceStart {
@@ -111,7 +123,7 @@ export function traceStartFromGeometry(geometryType: GeometryType, geometry: unk
 }
 
 const edited = (s: TraceState, patch: Partial<TraceState>): TraceState =>
-  ({ ...s, construction: null, message: null, ...patch });
+  ({ ...s, construction: null, message: null, translateUndo: [], ...patch });
 
 const minVertices = (s: TraceState) => (s.geometryType === 'polygon' || s.closed ? 3 : s.geometryType === 'linestring' ? 2 : 1);
 
@@ -152,8 +164,13 @@ export function addPoint(s: TraceState, raw: WorldXZ): TraceState {
   return edited(s, { vertices: [...s.vertices, p], selectedVertex: s.vertices.length });
 }
 
-/** Undo the last step: a pending constructor point, the ring closure, or the last vertex. */
+/** Undo the last step: a whole-shape move, a pending constructor point, the ring closure, or the last vertex. */
 export function undoLast(s: TraceState): TraceState {
+  if (s.translateUndo.length) {
+    const prev = s.translateUndo[s.translateUndo.length - 1];
+    return { ...s, vertices: prev.vertices, holes: prev.holes, construction: prev.construction,
+      translateUndo: s.translateUndo.slice(0, -1), message: null };
+  }
   if (s.constructionPoints.length) return { ...s, constructionPoints: s.constructionPoints.slice(0, -1) };
   if (s.closed && s.geometryType !== 'point') return edited(s, { closed: false });
   if (!s.vertices.length) return s;
@@ -196,6 +213,62 @@ export function simplifyTrace(s: TraceState, toleranceM: number): TraceState {
   const vertices = s.closed ? simplifyRing(s.vertices, toleranceM) : simplifyLine(s.vertices, toleranceM);
   const removed = s.vertices.length - vertices.length;
   return edited(s, { vertices, selectedVertex: null, message: `Simplified at ${toleranceM} m: ${removed} vertex(es) removed.` });
+}
+
+// ── whole-shape translation ─────────────────────────────────────────────────
+
+/** A translation can start once there is geometry and no constructor is mid-way. */
+export const canTranslate = (s: TraceState) => s.active && s.vertices.length > 0 && s.constructionPoints.length === 0;
+
+export const translateSnapshot = (s: TraceState): TranslateSnapshot =>
+  ({ vertices: s.vertices, holes: s.holes, construction: s.construction });
+
+const shift = (p: WorldXZ, dx: number, dz: number) => roundPoint({ x: p.x + dx, z: p.z + dz });
+
+/** A construction record moved with its geometry: the centre moves; radii, sizes and rotation do not. */
+export function translateConstruction(c: Construction | null, dx: number, dz: number): Construction | null {
+  return c ? { ...c, center: shift(c.center, dx, dz) } : null;
+}
+
+/** Start a whole-shape move: remember the geometry so UNDO can restore it. */
+export const beginTranslate = (s: TraceState): TraceState =>
+  (canTranslate(s) ? { ...s, translateUndo: [...s.translateUndo, translateSnapshot(s)], message: null } : s);
+
+/**
+ * The geometry `base` moved by (dx, dz): every vertex and hole by the same delta, and the
+ * construction record kept consistent (so it never describes a shape somewhere else).
+ * Computed from the drag's starting geometry, so a long drag does not accumulate rounding.
+ */
+export function translateFrom(s: TraceState, base: TranslateSnapshot, dx: number, dz: number): TraceState {
+  return {
+    ...s,
+    vertices: base.vertices.map(p => shift(p, dx, dz)),
+    holes: base.holes.map(h => h.map(p => shift(p, dx, dz))),
+    construction: translateConstruction(base.construction, dx, dz),
+  };
+}
+
+/** Whether a ground point is on the body of the traced geometry (for a whole-shape drag). */
+export function hitsTraceBody(s: TraceState, p: WorldXZ, tolerance: number): boolean {
+  const v = s.vertices;
+  if (!v.length) return false;
+  if (s.geometryType === 'point') return distance(p, v[0]) <= tolerance;
+  const n = v.length;
+  const segments = s.closed ? n : n - 1;
+  for (let i = 0; i < segments; i++) {
+    if (distance(p, closestOnSegment(p, v[i], v[(i + 1) % n]).point) <= tolerance) return true;
+  }
+  if (s.geometryType !== 'polygon' || !s.closed) return false;
+  const inRing = (ring: WorldXZ[]) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i];
+      const b = ring[j];
+      if ((a.z > p.z) !== (b.z > p.z) && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+    }
+    return inside;
+  };
+  return inRing(v) && !s.holes.some(inRing);
 }
 
 export function setMode(s: TraceState, mode: TraceMode): TraceState {

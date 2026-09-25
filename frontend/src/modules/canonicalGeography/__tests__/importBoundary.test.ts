@@ -19,7 +19,8 @@ const MODULE = resolve(__dirname, '..');
 /** Files allowed to read reference layers: in-scene tracing and the manager panel (WP5+). */
 const RASTER_UI = new Set(['TracingTool.tsx', 'CanonicalGeographyManager.tsx']);
 /** Pure modules: no UI framework, renderer, network or raster. */
-const PURE = ['types.ts', 'constraints.ts', 'physicalScale.ts', 'geometry.ts', 'tracing.ts', 'featureEditing.ts'];
+const PURE = ['types.ts', 'constraints.ts', 'physicalScale.ts', 'geometry.ts', 'tracing.ts', 'featureEditing.ts',
+  'landSelection.ts', 'scopes.ts', 'anchors.ts', 'connections.ts', 'mapPick.ts', 'scopeContents.ts'];
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

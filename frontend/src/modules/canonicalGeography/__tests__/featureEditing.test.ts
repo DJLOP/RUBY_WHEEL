@@ -65,9 +65,17 @@ describe('draftBody', () => {
     expect(body).toEqual({
       feature_class: 'water', geometry_type: 'polygon', kind: 'basin', constraint_strength: 'hard',
       name: 'Basin', description: null, notes: null, geometry: { outer: [], holes: [] }, construction: null,
-      attributes: { navigable: 'yes' }, evidence: null,
+      attributes: { navigable: 'yes' }, evidence: null, anchor_id: null, part_role: null,
     });
     for (const k of ['lifecycle_state', 'is_locked', 'replacement_state', 'revision', 'provenance', 'proposal']) expect(body).not.toHaveProperty(k);
+  });
+
+  it('carries anchor part linkage (WP6), and requires a role with an anchor', () => {
+    const form = { ...emptyForm('site'), anchor_id: 4 as const, part_role: 'footprint' };
+    expect(draftBody(form, { outer: [], holes: [] }, null, null)).toMatchObject({ anchor_id: 4, part_role: 'footprint' });
+    expect(formIssues({ ...form, part_role: '' })).toContain('an anchor part needs a part role');
+    expect(formIssues({ ...emptyForm('site'), part_role: 'node' })).toContain('a part role needs an anchor');
+    expect(formFromFeature(feature({ anchor_id: 9, part_role: 'node' }))).toMatchObject({ anchor_id: 9, part_role: 'node' });
   });
 
   it('leaves saved evidence alone when none is given, and omits unspecified attributes', () => {

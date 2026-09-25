@@ -72,6 +72,14 @@ module.exports = (db, io, { emitUpdate }) => {
 
   // ── reads ──────────────────────────────────────────────────────────────────
 
+  // The must-exist anchor checklist: accepted anchors with derived placed/unplaced status.
+  // Public like accepted canon, and registered before /:entity/:id so "register" is never an id.
+  router.get('/anchors/register', async (req, res) => {
+    try {
+      res.json(await store.anchorRegister());
+    } catch (err) { fail(res, err); }
+  });
+
   // Accepted canon is public. Any other lifecycle state is the world editor's working set.
   router.get('/:entity', async (req, res) => {
     try {

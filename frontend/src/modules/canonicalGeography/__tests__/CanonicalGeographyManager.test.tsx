@@ -186,7 +186,7 @@ describe('CanonicalGeographyManager', () => {
     expect(mutations()[0]).toEqual({ method: 'PATCH', url: '/api/canonical-geography/features/1/replacement', body: { replacement_state: 'replaceable' } });
   });
 
-  it('retires after confirmation, and restores from the retired filter', async () => {
+  it('retires after confirmation into the archive, and restores from there', async () => {
     const retiredRow = feature({ id: 3, lifecycle_state: 'retired', name: 'Old Isle' });
     respond = (c) => (c.method === 'GET' && c.url.includes('states=retired')
       ? { status: 200, body: [retiredRow] }
@@ -197,8 +197,11 @@ describe('CanonicalGeographyManager', () => {
     await userEvent.click(button(inspector(), /RETIRE/));
     await userEvent.click(within(screen.getByRole('alertdialog', { name: 'Confirm retire' })).getByRole('button', { name: 'CONFIRM' }));
     await waitFor(() => expect(mutations()[0]).toMatchObject({ method: 'POST', url: '/api/canonical-geography/features/1/retire' }));
-    // Retiring turns the retired filter on, which loads retired rows (editor-only read).
-    await waitFor(() => expect(screen.getByLabelText('Feature list').textContent).toContain('Old Isle'));
+    // Retired rows go to the archive: never into the active list, visible only when the archive is opened.
+    expect(screen.getByLabelText('Feature list').textContent).not.toContain('Old Isle');
+    const archive = await screen.findByRole('button', { name: /SHOW RETIRED \/ ARCHIVE \(1\)/ });
+    await userEvent.click(archive);
+    expect(screen.getByLabelText('Archive list').textContent).toContain('Old Isle');
     await selectFeature(3);
     await userEvent.click(button(inspector(), /RESTORE/));
     await waitFor(() => expect(mutations().at(-1)).toMatchObject({ method: 'POST', url: '/api/canonical-geography/features/3/restore' }));
@@ -262,7 +265,8 @@ describe('tracing and saving drafts', () => {
     expect(call.body).not.toHaveProperty('lifecycle_state');
     expect(calls.some(c => c.url.includes('/accept'))).toBe(false);
     expect(await screen.findByRole('status')).toHaveTextContent('Saved DRAFT #30');
-    expect(onTracingChange).toHaveBeenLastCalledWith(false);
+    // Tracing ends; the scene stays in the canonical view for map inspect (on by default).
+    expect(onTracingChange).toHaveBeenLastCalledWith(true);
     expect(session.getState().active).toBe(false);
   });
 

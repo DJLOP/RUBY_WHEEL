@@ -9,8 +9,10 @@
  */
 
 import type {
+  CanonicalQueryBundle,
   CanonicalAnchor, CanonicalConnection, CanonicalFeature, GeoScope, LifecycleState, ReplacementState,
 } from './types';
+import type { AnchorRegister } from './anchors';
 
 export const CANONICAL_API = '/api/canonical-geography';
 
@@ -146,4 +148,10 @@ export const canonicalApi = {
     canonicalRequest<CanonicalRevision[]>(token, 'GET', `/${entity}/${id}/revisions`),
   draftFromHistory: <T>(token: string, entity: CanonicalEntity, id: number, revision: number) =>
     canonicalRequest<T>(token, 'POST', `/${entity}/${id}/revisions/${revision}/draft`),
+  /** The generator-facing query (WP3): accepted canon only, used for a scope's spatial contents. */
+  query: (token: string, body: Record<string, unknown>) =>
+    canonicalRequest<CanonicalQueryBundle>(token, 'POST', '/query', body),
+  /** Accepted anchors with derived placed/unplaced status and part summary (WP6). */
+  anchorRegister: (token: string) =>
+    canonicalRequest<AnchorRegister>(token, 'GET', `/anchors/register?_t=${Date.now()}`),
 };
