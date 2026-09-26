@@ -239,12 +239,12 @@ Canonical-geometry authoring tools must be able to construct regular geometry ex
 A desired future authoring aid is a deterministic radial/spoke constructor, for example for radial walls. Conceptually it takes:
 
 - a canonical center point;
-- an accepted inner boundary or ring;
-- an accepted outer boundary or ring;
+- an inner boundary or ring — accepted canonical geometry, or a deterministic ring constructed from explicit, recorded parameters (for example a circle);
+- an outer boundary or ring, on the same terms;
 - a spoke count `N`;
 - an angular offset `θ₀`;
 
-and, for each `n = 0 … N−1`, casts a ray from the center at `θₙ = θ₀ + n · (360° / N)` and intersects it with the actual accepted inner and outer boundaries to produce the spoke geometry.
+and, for each `n = 0 … N−1`, casts a ray from the center at `θₙ = θ₀ + n · (360° / N)` and intersects it with the actual inner and outer boundaries to produce the spoke geometry.
 
 This is deterministic canonical-geometry construction. It is not procedural city generation and does not require AI. Its output is ordinary normalized canonical geometry and follows the normal draft → explicit accept lifecycle.
 

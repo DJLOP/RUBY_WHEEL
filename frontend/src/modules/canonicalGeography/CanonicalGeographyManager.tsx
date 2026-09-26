@@ -6,7 +6,7 @@ import { formatArea, formatLength, squareWorldUnitsToHectares, worldUnitsToMeter
 import { distance, geometryIssues, lineLength, polygonArea, ringPerimeter, type Construction } from './geometry';
 import {
   IDLE_TRACE, beginTrace, closeRing, deleteVertex, setMode, simplifyTrace, traceGeometry, traceStartFromGeometry, undoLast,
-  CONSTRUCTOR_CLICKS, type TraceMode, type TraceState, type TracingSession,
+  CONSTRUCTOR_CLICKS, CONSTRUCTOR_HINTS, type TraceMode, type TraceState, type TracingSession,
 } from './tracing';
 import {
   CLASS_GEOMETRY_TYPES, CLASS_KINDS, FEATURE_CLASSES, describeIssue, draftBody, emptyForm, featureActions, formFromFeature,
@@ -26,6 +26,9 @@ import { featureLabel } from './connections';
 import { ContextPane } from './ContextPane';
 import { NO_SPATIAL, spatialFromBundle, spatialPreview, type ScopeSpatial } from './scopeContents';
 import type { ScopeOverlay } from './mapPick';
+import { RadialConstructionPanel, type RadialPrefill } from './RadialConstructionPanel';
+import { createRadialSession, type RadialSession } from './radialSession';
+import { isRadialSpoke, type RadialSpokeFeature } from './radialWorkflow';
 
 /**
  * The primary administrator's canonical-geography panel (plan §7.2): the feature list and
@@ -73,6 +76,11 @@ interface Props {
    * `selection`; App passes the one the scene uses.
    */
   pick?: MapPickStore;
+  /**
+   * The radial constructor's preview state shared with the in-scene
+   * RadialConstructionPreview. Optional like `pick`; App passes the one the scene draws.
+   */
+  radial?: RadialSession;
 }
 
 type Tab = 'features' | 'anchors' | 'scopes' | 'connections';
@@ -131,10 +139,7 @@ const MODE_LABEL: Record<TraceMode, string> = {
 };
 const MODE_HINT: Record<TraceMode, string> = {
   vertex: 'Click to place vertices; click the first vertex (or CLOSE) to close. Drag handles to move, click an edge midpoint to insert, Alt-click or Delete to remove. Left-drag still pans.',
-  circle_3pt: 'Click 3 points on the circle’s rim.',
-  circle_center: 'Click the centre, then a point on the rim.',
-  ellipse: 'Click the centre, the end of one semi-axis, then a point at the other semi-axis’ extent.',
-  rect: 'Click two corners along one edge, then a point on the opposite edge.',
+  ...CONSTRUCTOR_HINTS,
 };
 
 function ActionButton({ label, availability, onClick, busy, danger }:
@@ -168,8 +173,14 @@ const isOpenState = (s: LifecycleState) => s === 'draft' || s === 'proposed';
 
 export function CanonicalGeographyManager({
   token, data, referenceLayers, refresh, session, tracingActive, onTracingChange, overlayVisible, onToggleOverlay, onClose,
-  selection: selectionProp, pick: pickProp,
+  selection: selectionProp, pick: pickProp, radial: radialProp,
 }: Props) {
+  const ownRadial = useMemo(() => createRadialSession(), []);
+  const radialSession = radialProp ?? ownRadial;
+  /** RADIAL CONSTRUCT is open (plan §15.6), optionally pre-filled from a spoke's record. */
+  const [radialTool, setRadialTool] = useState<{ prefill: RadialPrefill | null; key: number } | null>(null);
+  /** Map inspection as it was when the constructor opened; restored when it closes. */
+  const inspectingBeforeRadial = useRef<boolean | null>(null);
   const ownSelection = useMemo(() => createLandSelection(), []);
   const selection = selectionProp ?? ownSelection;
   const ownPick = useMemo(() => createMapPickStore(), []);
@@ -293,17 +304,18 @@ export function CanonicalGeographyManager({
    * among them (tracing > land picking > map inspect) is decided by the tools themselves;
    * this only keeps inherited map handlers off while one of them is on.
    */
-  const sceneWanted = (tracing: boolean, picking: boolean, inspecting: boolean) => tracing || picking || inspecting;
+  const sceneWanted = (tracing: boolean, picking: boolean, inspecting: boolean, radial = false) => tracing || picking || inspecting || radial;
 
   /** Map picking of land: the scene enters the canonical view so inherited handlers are off. */
   const setPicking = (on: boolean) => {
-    if (on && editing) return; // one scene tool at a time: finish or cancel the trace first
+    if (on && (editing || radialTool)) return; // one scene tool at a time: finish or cancel the trace or constructor first
     selection.update(s => ({ ...s, picking: on, message: null }));
     onTracingChange(sceneWanted(false, on, pick.getState().inspecting));
   };
 
   /** SELECT ON MAP: clicking canonical geometry opens it in the inspector. */
   const setInspecting = (on: boolean) => {
+    if (radialTool) return; // map clicks belong to the constructor while it is open
     pick.update(s => ({ ...s, inspecting: on }));
     if (!on) setChooser(null);
     onTracingChange(sceneWanted(!!editing, selection.getState().picking, on));
@@ -312,6 +324,7 @@ export function CanonicalGeographyManager({
   // ── tracing ──────────────────────────────────────────────────────────────
 
   const startTracing = (feature: CanonicalFeature | null, form: FeatureForm, boundaryFor?: GeoScope) => {
+    if (radialTool) closeRadial(); // one scene tool at a time: tracing replaces the constructor
     selection.update(s => (s.picking ? { ...s, picking: false } : s));
     setEditing({ feature, form, boundaryFor });
     setError(null);
@@ -336,6 +349,35 @@ export function CanonicalGeographyManager({
     session.update(() => IDLE_TRACE);
     onTracingChange(sceneWanted(false, selection.getState().picking, pick.getState().inspecting));
   };
+
+  // ── radial construction (plan §15) ─────────────────────────────────────────
+
+  /**
+   * Open RADIAL CONSTRUCT: exclusive with tracing, land picking and map inspection, like
+   * the other scene tools. Map inspection is paused (and restored on close) so the
+   * constructor's own map clicks never also open the inspector.
+   */
+  const openRadial = (prefill: RadialPrefill | null) => {
+    if (editing) return;
+    selection.update(s => (s.picking ? { ...s, picking: false } : s));
+    if (inspectingBeforeRadial.current === null) inspectingBeforeRadial.current = pick.getState().inspecting;
+    pick.update(s => ({ ...s, inspecting: false }));
+    setChooser(null);
+    setConfirm(null);
+    setError(null);
+    setRadialTool(r => ({ prefill, key: (r?.key ?? 0) + 1 }));
+    onTracingChange(true);
+  };
+
+  function closeRadial() {
+    const restore = inspectingBeforeRadial.current ?? pick.getState().inspecting;
+    inspectingBeforeRadial.current = null;
+    pick.update(s => ({ ...s, inspecting: restore }));
+    setRadialTool(null);
+    onTracingChange(sceneWanted(false, selection.getState().picking, restore));
+  }
+
+  const reconstructFrom = (f: RadialSpokeFeature, review = false) => openRadial({ feature: f, review });
 
   const updateForm = (changes: Partial<FeatureForm>) => {
     if (!editing) return;
@@ -570,6 +612,7 @@ export function CanonicalGeographyManager({
   const requestClose = () => {
     if (editing && trace.vertices.length) { setConfirm({ kind: 'discard' }); return; }
     if (editing) endTracing();
+    if (radialTool) closeRadial();
     selection.update(s => (s.picking ? { ...s, picking: false } : s));
     onClose();
   };
@@ -611,6 +654,31 @@ export function CanonicalGeographyManager({
   const ctxFeature = ctx?.featureId != null ? allFeatures.find(f => f.id === ctx.featureId) ?? null : null;
 
   // ── render ───────────────────────────────────────────────────────────────
+
+  const inspectorView = selected && (
+    <div ref={inspectorRef}>
+      <Inspector feature={selected} busy={busy} referenceLayers={referenceLayers} openRevisionId={openRevision?.id ?? null}
+        history={history?.featureId === selected.id ? history.rows : null}
+        descriptive={descriptive} onDescriptive={setDescriptive}
+        onEdit={() => startTracing(selected, formFromFeature(selected))}
+        onEditGeometry={() => editFeatureGeometry(selected)}
+        onAccept={() => setConfirm({ kind: 'accept', feature: selected, lockAfter: false, violations: [], warnings: [] })}
+        onDelete={() => setConfirm({ kind: 'delete', feature: selected })}
+        onRevise={() => void revise(selected)}
+        onRetire={() => setConfirm({ kind: 'retire', feature: selected })}
+        onRestore={() => void restore(selected)}
+        onLock={(v) => void setLock(selected, v)}
+        onReplacement={() => setConfirm({ kind: 'replacement', feature: selected })}
+        onSaveDescriptive={() => void saveDescriptive(selected)}
+        onLoadHistory={() => void loadHistory(selected)}
+        onDraftFromHistory={(rev) => void draftFromHistory(selected, rev)}
+        onSelect={select}
+        boundaryOf={data.scopes.filter(sc => sc.boundary_feature_id === (selected.revises_id ?? selected.id))}
+        onOpenScope={openScope}
+        allFeatures={allFeatures} onReconstruct={reconstructFrom} radialBusy={!!editing}
+      />
+    </div>
+  );
 
   return (
     <>
@@ -705,7 +773,7 @@ export function CanonicalGeographyManager({
           else { endTracing(); onClose(); }
         }} />}
 
-      {!editing && (
+      {!editing && !radialTool && (
         <div role="tablist" aria-label="Canonical geography sections" style={{ display: 'flex', gap: '2px', marginTop: '8px' }}>
           {TABS.map(([t, label]) => (
             <button key={t} role="tab" aria-selected={tab === t} className="utility-btn"
@@ -725,6 +793,13 @@ export function CanonicalGeographyManager({
           onForm={updateForm} onResume={() => onTracingChange(true)} onSave={saveDraft}
           onCancel={() => (trace.vertices.length ? setConfirm({ kind: 'discard' }) : endTracing())}
         />
+      ) : radialTool ? (
+        <>
+          <RadialConstructionPanel key={radialTool.key} data={data} ops={ops} session={radialSession} refresh={refresh}
+            prefill={radialTool.prefill} onInspectFeature={(id) => { setStates(st => ({ ...st, draft: true, accepted: true })); select(id); }}
+            onClose={closeRadial} />
+          {inspectorView}
+        </>
       ) : tab === 'anchors' ? (
         <AnchorsPanel data={data} ops={ops} onAddPart={addPart} onInspectFeature={inspectFeature} />
       ) : tab === 'scopes' ? (
@@ -739,7 +814,11 @@ export function CanonicalGeographyManager({
           <div style={section}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong style={{ fontSize: '0.75rem' }}>FEATURES</strong>
-              <button className="utility-btn" style={smallBtn} disabled={busy} onClick={() => startTracing(null, emptyForm())}>+ TRACE NEW FEATURE</button>
+              <span>
+                <button className="utility-btn" style={smallBtn} disabled={busy} onClick={() => startTracing(null, emptyForm())}>+ TRACE NEW FEATURE</button>
+                <button className="utility-btn" style={smallBtn} disabled={busy} onClick={() => openRadial(null)}
+                  title="Exact radial spokes between two accepted closed boundaries (drafts only)">RADIAL CONSTRUCT</button>
+              </span>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '0.62rem', marginTop: '4px' }}>
               {(['accepted', 'draft', 'proposed'] as LifecycleState[]).map(s => (
@@ -799,29 +878,7 @@ export function CanonicalGeographyManager({
             )}
           </div>
 
-          {selected && (
-            <div ref={inspectorRef}>
-            <Inspector feature={selected} busy={busy} referenceLayers={referenceLayers} openRevisionId={openRevision?.id ?? null}
-              history={history?.featureId === selected.id ? history.rows : null}
-              descriptive={descriptive} onDescriptive={setDescriptive}
-              onEdit={() => startTracing(selected, formFromFeature(selected))}
-              onEditGeometry={() => editFeatureGeometry(selected)}
-              onAccept={() => setConfirm({ kind: 'accept', feature: selected, lockAfter: false, violations: [], warnings: [] })}
-              onDelete={() => setConfirm({ kind: 'delete', feature: selected })}
-              onRevise={() => void revise(selected)}
-              onRetire={() => setConfirm({ kind: 'retire', feature: selected })}
-              onRestore={() => void restore(selected)}
-              onLock={(v) => void setLock(selected, v)}
-              onReplacement={() => setConfirm({ kind: 'replacement', feature: selected })}
-              onSaveDescriptive={() => void saveDescriptive(selected)}
-              onLoadHistory={() => void loadHistory(selected)}
-              onDraftFromHistory={(rev) => void draftFromHistory(selected, rev)}
-              onSelect={select}
-              boundaryOf={data.scopes.filter(sc => sc.boundary_feature_id === (selected.revises_id ?? selected.id))}
-              onOpenScope={openScope}
-            />
-            </div>
-          )}
+          {inspectorView}
         </>
       )}
 
@@ -999,6 +1056,9 @@ function describeConstruction(c: Construction): string {
   const m = (wu: number) => formatLength(wu);
   if (c.type === 'circle') return `circle, centre (${c.center.x}, ${c.center.z}), radius ${m(c.radius)}, ${c.segments} segments`;
   if (c.type === 'ellipse') return `ellipse, centre (${c.center.x}, ${c.center.z}), semi-axes ${m(c.radius_x)} × ${m(c.radius_z)}, ${c.segments} segments`;
+  if (c.type === 'radial_spoke') {
+    return `radial spoke ${c.index} of ${c.count} at ${c.angle_deg.toFixed(3)}° (θ₀ ${c.offset_deg}°), centre (${c.center.x}, ${c.center.z})`;
+  }
   return `rectangle ${m(c.width)} × ${m(c.height)}, centre (${c.center.x}, ${c.center.z})`;
 }
 
@@ -1052,7 +1112,7 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 function Inspector({
   feature: f, busy, referenceLayers, openRevisionId, history, descriptive, onDescriptive, onEdit, onAccept, onDelete, onRevise,
   onRetire, onRestore, onLock, onReplacement, onSaveDescriptive, onLoadHistory, onDraftFromHistory, onSelect, boundaryOf = [], onOpenScope,
-  onEditGeometry,
+  onEditGeometry, allFeatures = [], onReconstruct, radialBusy = false,
 }: {
   feature: CanonicalFeature; busy: boolean; referenceLayers: ReferenceLayer[]; openRevisionId: number | null;
   history: CanonicalRevision[] | null;
@@ -1065,6 +1125,12 @@ function Inspector({
   boundaryOf?: GeoScope[]; onOpenScope?: (id: number) => void;
   /** Accepted: edit geometry through its draft revision (Revise), never in place. */
   onEditGeometry?: () => void;
+  /** Every loaded feature (retired included), for a radial spoke's stale-inputs notice. */
+  allFeatures?: CanonicalFeature[];
+  /** Open the radial constructor from this spoke's record: reconstruct, or review its construction. */
+  onReconstruct?: (f: RadialSpokeFeature, review?: boolean) => void;
+  /** The constructor cannot open while a trace is being edited. */
+  radialBusy?: boolean;
 }) {
   const a = featureActions(f, openRevisionId);
   const metrics = geometryMetrics(f.geometry_type, f.geometry);
@@ -1088,7 +1154,7 @@ function Inspector({
         <Row k="REVISION">{f.revision}{open ? ` · draft v${f.draft_version}` : ''}</Row>
         {f.revises_id && <Row k="REVISES">#{f.revises_id} (built on r{f.base_revision ?? '?'})</Row>}
         {f.attributes && <Row k="ATTRIBUTES">{JSON.stringify(f.attributes)}</Row>}
-        {f.construction && <Row k="CONSTRUCTION">{describeConstruction(f.construction as unknown as Construction)}</Row>}
+        {f.construction && !isRadialSpoke(f) && <Row k="CONSTRUCTION">{describeConstruction(f.construction as unknown as Construction)}</Row>}
         {boundaryOf.length > 0 && <Row k="BOUNDARY OF">{boundaryOf.map(sc => (
           <button key={sc.id} className="utility-btn" style={{ ...smallBtn, marginTop: 0 }} onClick={() => onOpenScope?.(sc.id)}>
             OPEN {scopeLabel(sc)}{sc.lifecycle_state === 'accepted' ? '' : ` [${sc.lifecycle_state.toUpperCase()}]`}
@@ -1102,6 +1168,9 @@ function Inspector({
         </Row>
         {f.proposal && <Row k="PROPOSAL">{JSON.stringify(f.proposal)}</Row>}
       </div>
+      {isRadialSpoke(f) && (
+        <RadialRecord feature={f} allFeatures={allFeatures} busy={busy || radialBusy} onReconstruct={onReconstruct} />
+      )}
       {openRevisionId !== null && (
         <div style={{ fontSize: '0.62rem' }}>Open draft revision: <button className="utility-btn" style={smallBtn} onClick={() => onSelect(openRevisionId)}>#{openRevisionId}</button></div>
       )}
@@ -1160,6 +1229,68 @@ function Inspector({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── radial construction record (plan §15.8) ────────────────────────────────
+
+type InputState = { ok: true } | { ok: false; text: string };
+
+/** A recorded boundary: a feature at its pinned revision, or an inline circle (a construction input, not a feature). */
+function describeBoundary(b: RadialSpokeFeature['construction']['inner']): string {
+  if ('feature_id' in b) return `#${b.feature_id} r${b.revision}`;
+  const c = b.circle;
+  return `constructed circle (${c.method === 'three_point' ? '3 rim points' : 'centre + rim'}), centre (${c.center.x}, ${c.center.z}), radius ${formatLength(c.radius)}`
+    + (b.materialized_feature_id ? ` · created as draft #${b.materialized_feature_id} (independent)` : ' · construction input only');
+}
+
+/**
+ * Whether a recorded input is still the accepted revision loaded now. Informational only:
+ * it triggers nothing, and accepted spokes are never rewritten because an input moved.
+ */
+function inputState(features: CanonicalFeature[], ref: { feature_id: number; revision: number }): InputState {
+  const f = features.find(x => x.id === ref.feature_id && x.revises_id === null);
+  if (!f) return { ok: false, text: 'not found' };
+  if (f.lifecycle_state === 'retired') return { ok: false, text: `retired (was r${ref.revision})` };
+  if (f.lifecycle_state !== 'accepted') return { ok: false, text: `not accepted (${f.lifecycle_state})` };
+  if (f.revision !== ref.revision) return { ok: false, text: `now at r${f.revision} (built from r${ref.revision})` };
+  return { ok: true };
+}
+
+function RadialRecord({ feature: f, allFeatures, busy, onReconstruct }: {
+  feature: RadialSpokeFeature; allFeatures: CanonicalFeature[]; busy: boolean; onReconstruct?: (f: RadialSpokeFeature, review?: boolean) => void;
+}) {
+  const c = f.construction;
+  const inputs: [string, { feature_id: number; revision: number }][] = [];
+  for (const [role, b] of [['inner', c.inner], ['outer', c.outer]] as const) if ('feature_id' in b) inputs.push([role, b]);
+  if (c.center_source.kind !== 'coordinate') inputs.push(['center', { feature_id: c.center_source.feature_id, revision: c.center_source.revision }]);
+  const stale = inputs.map(([role, ref]) => ({ role, ref, state: inputState(allFeatures, ref) }))
+    .filter((i): i is { role: string; ref: { feature_id: number; revision: number }; state: { ok: false; text: string } } => !i.state.ok);
+  return (
+    <div aria-label="Radial construction record" style={{ marginTop: '4px', border: '1px solid var(--dark-green)', padding: '3px' }}>
+      <strong style={{ fontSize: '0.62rem' }}>RADIAL CONSTRUCTION (read-only)</strong>
+      <div style={kv}>
+        <Row k="CONSTRUCTION">{c.construction_id.slice(0, 8)}</Row>
+        <Row k="SPOKE">{c.index} of N = {c.count}{c.omit_indices.length ? ` (omitted: ${c.omit_indices.join(', ')})` : ''}</Row>
+        <Row k="θ₀ / θₙ">{c.offset_deg}° / {c.angle_deg.toFixed(3)}° (from +X toward +Z)</Row>
+        <Row k="CENTER">({c.center.x}, {c.center.z}) · {c.center_source.kind === 'coordinate' ? 'coordinate'
+          : `${c.center_source.kind === 'feature_point' ? 'point' : 'construction center of'} #${c.center_source.feature_id} r${c.center_source.revision}`}</Row>
+        <Row k="INNER">{describeBoundary(c.inner)}</Row>
+        <Row k="OUTER">{describeBoundary(c.outer)}</Row>
+      </div>
+      {stale.length > 0 && (
+        <div role="note" aria-label="Stale inputs" style={{ fontSize: '0.62rem', color: '#ffcc55' }}>
+          Inputs changed since construction: {stale.map(i => `${i.role} #${i.ref.feature_id} ${i.state.text}`).join('; ')}.
+          This spoke is unchanged; reconstruct explicitly if it should follow.
+        </div>
+      )}
+      {onReconstruct && (
+        <div>
+          <button className="utility-btn" style={smallBtn} disabled={busy} onClick={() => onReconstruct(f)}>RECONSTRUCT FROM THIS CONSTRUCTION…</button>
+          <button className="utility-btn" style={smallBtn} disabled={busy} onClick={() => onReconstruct(f, true)}>REVIEW CONSTRUCTION</button>
         </div>
       )}
     </div>

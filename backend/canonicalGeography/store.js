@@ -25,16 +25,237 @@
  * connection. Any failure inside a transaction rolls it back.
  */
 
+const crypto = require('crypto');
 const {
-  ENTITIES, LIFECYCLE_STATES, EDITOR_PROVENANCE, REPLACEMENT_STATES, DESCRIPTIVE_FIELDS,
-  serialize, toInput, refuseUnknown, normalizeProposal, text, NAME_MAX, isPlainObject,
+  ENTITIES, LIFECYCLE_STATES, EDITOR_PROVENANCE, REPLACEMENT_STATES, DESCRIPTIVE_FIELDS, STRENGTHS, FEATURE_KINDS,
+  serialize, toInput, refuseUnknown, normalizeProposal, text, NAME_MAX, isPlainObject, isRadialSpoke,
 } = require('./entities');
 const { validateAccept, validateRetire, findDependents } = require('./validation');
-const { invalid, notFound, conflict } = require('./errors');
+const { CanonicalError, invalid, notFound, conflict } = require('./errors');
 const { openTransactionConnection } = require('./connection');
 const { runQuery } = require('./query');
+const { validateGeometry, WORLD_LIMIT } = require('./geometry');
+const radial = require('./radialConstruction');
+const circles = require('./circleConstruction');
 
 const OPEN_STATES = ['draft', 'proposed'];
+
+const RADIAL_ONLY = 'a radial_spoke construction record is written only by POST /constructions/radial';
+const RADIAL_EDIT = 'clear the construction record when editing constructed geometry (send construction: null with the new geometry)';
+
+/** JSON text compared by value, independent of key order. */
+const sameJson = (a, b) => {
+  const stable = (v) => (Array.isArray(v) ? v.map(stable)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, stable(v[k])])) : v);
+  const norm = (s) => (s === null || s === undefined ? null : JSON.stringify(stable(JSON.parse(s))));
+  return norm(a) === norm(b);
+};
+
+/**
+ * A `radial_spoke` record describes exactly the geometry the constructor produced (plan
+ * §15.8). A normalized feature may carry one only if both the record and the geometry are
+ * the ones already stored on `reference` (an echoed draft, or a revision copied from
+ * canon). A client-supplied record, or a kept record over changed geometry, is refused.
+ */
+function guardRadialRecord(columns, reference) {
+  if (!isRadialSpoke(columns.construction_json ? JSON.parse(columns.construction_json) : null)) return;
+  if (!reference) throw invalid(RADIAL_ONLY);
+  if (!sameJson(columns.construction_json, reference.construction_json)) throw invalid(RADIAL_ONLY);
+  if (!sameJson(columns.geometry_json, reference.geometry_json)) throw invalid(RADIAL_EDIT);
+}
+
+// ── the radial construct request (plan §15.11) ────────────────────────────────
+
+const RADIAL_REQUEST_KEYS = ['inner', 'outer', 'center', 'center_source', 'count', 'offset_deg', 'omit_indices', 'output', 'revises', 'dry_run'];
+const RADIAL_OUTPUT_CLASSES = ['route', 'site'];
+const NAME_PREFIX_MAX = NAME_MAX - 5; // room for " #359"
+const INPUT_WORDS = { inner: 'Inner boundary', outer: 'Outer boundary', center: 'Center feature' };
+
+const positiveInt = (v) => Number.isInteger(v) && v > 0;
+
+function parseInputRef(value, field) {
+  if (!isPlainObject(value)) throw invalid(`${field} must be {feature_id, expected_revision}`);
+  for (const k of Object.keys(value)) {
+    if (k !== 'feature_id' && k !== 'expected_revision') throw invalid(`${field}.${k} is not recognised (allowed: feature_id, expected_revision)`);
+  }
+  if (!positiveInt(value.feature_id)) throw invalid(`${field}.feature_id must be a positive integer id`);
+  if (!positiveInt(value.expected_revision)) throw invalid(`${field}.expected_revision must be a positive integer (accepted inputs start at revision 1)`);
+  return { feature_id: value.feature_id, expected_revision: value.expected_revision };
+}
+
+/**
+ * One boundary source (plan §15.3.1): an accepted feature pinned at a revision, or an inline
+ * circle definition — the shape creator's circle method and its defining clicks. The server
+ * recomputes the circle itself from the definition; no client geometry is accepted.
+ */
+/**
+ * An inline circle materialized as an ordinary canonical feature draft (plan §15.3.1): the
+ * same server-resolved ring and the shape creator's own `circle` construction record, as a
+ * polygon — how the shape creator saves a circle — or, for a `route`, a closed linestring
+ * (a wall ring, §4.4). Validated by the ordinary feature normalization, so vocabularies and
+ * geometry rules are exactly those of any other draft.
+ */
+const MATERIALIZE_KEYS = ['feature_class', 'kind', 'constraint_strength', 'name', 'width_wu'];
+function parseMaterialize(value, field, built) {
+  if (!isPlainObject(value)) throw invalid(`${field}.materialize must be {feature_class, kind?, constraint_strength?, name?, width_wu?}`);
+  for (const k of Object.keys(value)) {
+    if (!MATERIALIZE_KEYS.includes(k)) throw invalid(`${field}.materialize.${k} is not recognised (allowed: ${MATERIALIZE_KEYS.join(', ')}); a boundary draft is always an authored, unaccepted draft`);
+  }
+  const featureClass = value.feature_class;
+  const linestring = featureClass === 'route';
+  const input = {
+    feature_class: featureClass,
+    kind: value.kind ?? null,
+    geometry_type: linestring ? 'linestring' : 'polygon',
+    geometry: linestring ? [...built.ring, built.ring[0]] : { outer: built.ring, holes: [] },
+    construction: built.construction,
+    constraint_strength: value.constraint_strength ?? 'hard',
+    name: value.name ?? null,
+    // The ordinary route attribute: optional, positive, full width in world units. Any other
+    // class refuses it through the same attribute validation as every draft.
+    attributes: value.width_wu === undefined || value.width_wu === null ? null : { width_wu: value.width_wu },
+  };
+  let normalized;
+  try {
+    normalized = ENTITIES.features.normalize(input);
+  } catch (err) {
+    if (err instanceof CanonicalError) throw invalid(`${field}.materialize: ${err.message}`, err.details);
+    throw err;
+  }
+  return normalized;
+}
+
+function parseBoundary(value, field) {
+  if (isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, 'circle')) {
+    if (Object.keys(value).some(k => k !== 'circle' && k !== 'materialize')) {
+      throw invalid(`${field} takes either {feature_id, expected_revision} or {circle, materialize?}, not both`);
+    }
+    const c = value.circle;
+    if (!isPlainObject(c)) throw invalid(`${field}.circle must be {method, points}`);
+    for (const k of Object.keys(c)) {
+      if (k !== 'method' && k !== 'points') throw invalid(`${field}.circle.${k} is not recognised (allowed: method, points); the server derives the circle itself`);
+    }
+    if (!circles.CIRCLE_METHODS.includes(c.method)) throw invalid(`${field}.circle.method must be one of ${circles.CIRCLE_METHODS.join(', ')}`);
+    const want = circles.CIRCLE_METHOD_POINTS[c.method];
+    if (!Array.isArray(c.points) || c.points.length !== want) {
+      throw invalid(`${field}.circle.points must be ${want} points for ${c.method} (${c.method === 'three_point' ? 'three rim points' : 'the centre, then a rim point'})`);
+    }
+    c.points.forEach((p, i) => {
+      if (!isPlainObject(p) || Object.keys(p).some(k => k !== 'x' && k !== 'z')) throw invalid(`${field}.circle.points[${i}] must be {x, z}`);
+      const g = validateGeometry('point', p);
+      if (!g.ok) throw invalid(`${field}.circle.points[${i}] is not a valid point: ${g.issues.map(x => x.message).join('; ')}`);
+    });
+    const built = circles.circleFromDefinition(c.method, c.points);
+    if (!built) {
+      throw invalid(`${field}.circle does not define a circle: ${c.method === 'three_point' ? 'the three points are collinear or coincident' : 'the rim point is the centre'}`,
+        { code: 'degenerate_circle' });
+    }
+    const ring = validateGeometry('polygon', { outer: built.ring });
+    if (!ring.ok) {
+      throw invalid(`${field}.circle is not a usable boundary: ${ring.issues.map(x => x.message).join('; ')}`, { code: 'degenerate_circle' });
+    }
+    const { center, radius, segments, max_chord_error_m: chord } = built.construction;
+    const materialize = value.materialize === undefined || value.materialize === null ? null : parseMaterialize(value.materialize, field, built);
+    return {
+      kind: 'circle', ring: built.ring, materialize,
+      record: { circle: { method: c.method, points: c.points.map(circles.roundPoint), center, radius, segments, max_chord_error_m: chord } },
+    };
+  }
+  if (isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, 'materialize')) {
+    throw invalid(`${field}.materialize applies only to a constructed circle; an existing canonical boundary is never duplicated`);
+  }
+  return { kind: 'feature', ...parseInputRef(value, field) };
+}
+
+function parseOutput(value) {
+  if (!isPlainObject(value)) throw invalid('output must be an object of output feature settings');
+  const allowed = ['feature_class', 'kind', 'constraint_strength', 'width_wu', 'name_prefix'];
+  for (const k of Object.keys(value)) {
+    if (!allowed.includes(k)) throw invalid(`output.${k} is not recognised (allowed: ${allowed.join(', ')})`);
+  }
+  const featureClass = value.feature_class ?? 'route';
+  if (!RADIAL_OUTPUT_CLASSES.includes(featureClass)) throw invalid(`output.feature_class must be one of ${RADIAL_OUTPUT_CLASSES.join(', ')}`);
+  let kind = null;
+  if (value.kind !== undefined && value.kind !== null) {
+    const kinds = FEATURE_KINDS[featureClass];
+    if (!kinds) throw invalid(`${featureClass} features take no kind`);
+    if (!kinds.includes(value.kind)) throw invalid(`output.kind must be one of ${kinds.join(', ')}`);
+    kind = value.kind;
+  }
+  const strength = value.constraint_strength ?? 'hard';
+  if (!STRENGTHS.includes(strength)) throw invalid(`output.constraint_strength must be one of ${STRENGTHS.join(', ')}`);
+  let width = null;
+  if (value.width_wu !== undefined && value.width_wu !== null) {
+    if (featureClass !== 'route') throw invalid('output.width_wu applies to route output only');
+    if (typeof value.width_wu !== 'number' || !Number.isFinite(value.width_wu) || value.width_wu <= 0 || value.width_wu > WORLD_LIMIT) {
+      throw invalid('output.width_wu must be a positive number of world units');
+    }
+    width = value.width_wu;
+  }
+  const prefix = value.name_prefix === undefined || value.name_prefix === null
+    ? 'Spoke' : text(value.name_prefix, 'output.name_prefix', { max: NAME_PREFIX_MAX }) || 'Spoke';
+  return { feature_class: featureClass, kind, constraint_strength: strength, width_wu: width, name_prefix: prefix };
+}
+
+/** Shape-check a construct request; every malformed parameter is a 400 before any read. */
+function parseRadialRequest(body) {
+  if (!isPlainObject(body)) throw invalid('request body must be an object');
+  for (const k of Object.keys(body)) {
+    if (!RADIAL_REQUEST_KEYS.includes(k)) throw invalid(`${k} is not a field of a radial construction request`);
+  }
+  if (body.dry_run !== undefined && typeof body.dry_run !== 'boolean') throw invalid('dry_run must be true or false');
+  const inner = parseBoundary(body.inner, 'inner');
+  const outer = parseBoundary(body.outer, 'outer');
+
+  const src = body.center_source ?? { kind: 'coordinate' };
+  if (!isPlainObject(src)) throw invalid('center_source must be an object');
+  let centerSource;
+  if (src.kind === 'coordinate') {
+    if (Object.keys(src).some(k => k !== 'kind')) throw invalid('a coordinate center_source takes only kind');
+    centerSource = { kind: 'coordinate' };
+  } else if (src.kind === 'feature_point' || src.kind === 'feature_construction_center') {
+    const { kind, ...ref } = src;
+    centerSource = { kind, ...parseInputRef(ref, 'center_source') };
+  } else {
+    throw invalid('center_source.kind must be one of coordinate, feature_point, feature_construction_center');
+  }
+  let center = null;
+  const hasCenter = body.center !== undefined && body.center !== null;
+  if (centerSource.kind === 'coordinate') {
+    if (!hasCenter) throw invalid('center {x, z} is required when the center source is a coordinate');
+    const g = validateGeometry('point', body.center);
+    if (!g.ok) throw invalid(`center is not a valid point: ${g.issues.map(i => i.message).join('; ')}`);
+    center = g.geometry;
+  } else if (hasCenter) {
+    throw invalid(`center must be absent when the center comes from a feature (${centerSource.kind}); the server derives it`);
+  }
+
+  const params = radial.normalizeParams({ count: body.count, offset_deg: body.offset_deg, omit_indices: body.omit_indices });
+  if (!params.ok) throw invalid(params.issues.map(i => i.message).join('; '), { issues: params.issues });
+
+  let revises = null;
+  let output = null;
+  if (body.revises !== undefined && body.revises !== null) {
+    if (body.output !== undefined && body.output !== null) {
+      throw invalid('output is forbidden in revision mode: revisions keep each spoke\'s class, kind, strength, width and name');
+    }
+    if (!Array.isArray(body.revises) || !body.revises.length) throw invalid('revises must be a non-empty array of {index, feature_id, expected_revision}');
+    revises = body.revises.map((r, i) => {
+      if (!isPlainObject(r)) throw invalid(`revises[${i}] must be {index, feature_id, expected_revision}`);
+      const { index, ...ref } = r;
+      if (!Number.isInteger(index) || index < 0) throw invalid(`revises[${i}].index must be a spoke index`);
+      return { index, ...parseInputRef(ref, `revises[${i}]`) };
+    });
+    if (new Set(revises.map(r => r.feature_id)).size !== revises.length) throw invalid('revises names a feature more than once');
+  } else {
+    if (body.output === undefined || body.output === null) throw invalid('output is required when creating new drafts');
+    output = parseOutput(body.output);
+  }
+  return {
+    inner, outer, center, centerSource, count: params.count, offset_deg: params.offset_deg, omit_indices: params.omit_indices,
+    output, revises, dry_run: body.dry_run === true,
+  };
+}
 
 /**
  * Timestamps come from SQLite, not this process, so they share one clock with the column
@@ -328,6 +549,7 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
     }
     if (!EDITOR_PROVENANCE.includes(provenance)) throw invalid(`provenance must be one of ${EDITOR_PROVENANCE.join(', ')}`);
     refuseUnknown(spec, fields);
+    if (isRadialSpoke(fields.construction)) throw invalid(RADIAL_ONLY);
     const normalized = spec.normalize(fields);
 
     return transact(async (tx) => {
@@ -353,6 +575,7 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
     if (provenance !== 'generated') throw invalid('proposals must declare provenance "generated"');
     const proposalJson = normalizeProposal(proposal);
     refuseUnknown(spec, fields);
+    if (isRadialSpoke(fields.construction)) throw invalid(RADIAL_ONLY);
     if (revisesId !== undefined && revisesId !== null && (!Number.isInteger(revisesId) || revisesId <= 0)) {
       throw invalid('revises_id must be a positive integer id');
     }
@@ -368,6 +591,8 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
         await refuseOpenRevision(tx, spec, canon.id, 'proposed');
         const base = toInput(spec, await record(tx, spec, canon));
         const normalized = normalizeRevision(spec, canon, { ...base, ...fields });
+        // An inherited radial record may ride along only over the canonical geometry.
+        if (spec.entity === 'features') guardRadialRecord(normalized.columns, canon);
         newId = await insertRevision(tx, spec, canon, normalized, { state: 'proposed', provenance: 'generated', proposalJson });
       } else {
         const normalized = spec.normalize(fields);
@@ -414,6 +639,8 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
           normalized = spec.normalize(merged);
           if (spec.keyField) await refuseTakenKey(tx, spec, normalized.columns[spec.keyField], id);
         }
+        // A radial record stays only while it still describes the stored geometry (plan §15.8).
+        if (spec.entity === 'features') guardRadialRecord(normalized.columns, row);
         await updateRow(tx, spec, id, { ...normalized.columns, draft_version: row.draft_version + 1 });
         if (spec.hasMembers) await writeMembers(tx, id, normalized.members, normalized.columns.scope_kind, false);
         return record(tx, spec, await loadRow(tx, spec, id));
@@ -693,6 +920,298 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
     });
   };
 
+  // ── radial construction (plan §15) ─────────────────────────────────────────
+
+  /**
+   * POST /constructions/radial — exact radial spokes between two accepted closed
+   * boundaries, persisted only as drafts, all or nothing.
+   *
+   * Inputs are only read: construction never modifies, locks, revises or retires one.
+   * Every input is pinned to the revision the editor previewed; a moved input is `stale`.
+   *
+   * New-drafts mode inserts one `authored` draft per non-omitted spoke under a new
+   * construction_id. Revision mode (`revises`) creates a draft revision of each accepted
+   * spoke of one construction — replacing only geometry and construction — and only if
+   * the request keeps that construction's count and omissions and names every accepted
+   * sibling; otherwise it refuses with the full list and writes nothing. Nothing is ever
+   * accepted here; acceptance stays the per-record accept route.
+   *
+   * `dry_run` runs the same reads and checks without writing and answers the report.
+   */
+  const constructRadial = (body) => {
+    const req = parseRadialRequest(body);
+    const spec = ENTITIES.features;
+
+    const work = async (q) => {
+      const errors = [];
+      const input = async (role, ref) => {
+        const label = `${INPUT_WORDS[role]} (feature #${ref.feature_id})`;
+        const row = await loadRow(q, spec, ref.feature_id);
+        if (!row) {
+          errors.push({ code: 'not_found', input: role, feature_id: ref.feature_id, message: `${label} was not found.` });
+          return null;
+        }
+        if (row.lifecycle_state !== 'accepted') {
+          errors.push({ code: 'not_accepted', input: role, feature_id: row.id, lifecycle_state: row.lifecycle_state,
+            message: `${label} is ${row.lifecycle_state}; construction reads accepted canon only. Accept it first.` });
+          return null;
+        }
+        if (row.revision !== ref.expected_revision) {
+          errors.push({ code: 'stale_input', input: role, feature_id: row.id, expected_revision: ref.expected_revision,
+            current_revision: row.revision,
+            message: `${label} changed from revision ${ref.expected_revision} to ${row.revision} since preview. Refresh the preview, review it and create again.` });
+          return null;
+        }
+        return row;
+      };
+      const ringOf = (role, row) => {
+        if (!row) return null;
+        const r = radial.boundaryRing(row.geometry_type, JSON.parse(row.geometry_json));
+        if (r.ok) return r.ring;
+        errors.push({ code: 'ineligible_input', input: role, feature_id: row.id,
+          message: `${INPUT_WORDS[role]} (feature #${row.id}) is not a closed boundary: ${r.reason}.` });
+        return null;
+      };
+
+      if (req.inner.kind === 'feature' && req.outer.kind === 'feature' && req.inner.feature_id === req.outer.feature_id) {
+        errors.push({ code: 'same_input', input: 'outer', feature_id: req.outer.feature_id,
+          message: `The inner and outer boundary are the same feature (#${req.inner.feature_id}); choose two different boundaries.` });
+      }
+      // A feature boundary is read at its pinned revision; an inline circle was recomputed from its definition.
+      const boundary = async (role, src) => {
+        if (src.kind === 'circle') return { ring: src.ring, record: src.record, label: `${role} boundary (constructed circle)` };
+        const row = await input(role, src);
+        const ring = ringOf(role, row);
+        return { ring, record: row ? { feature_id: row.id, revision: row.revision } : null, label: `${role} boundary (feature #${src.feature_id})` };
+      };
+      const innerSrc = await boundary('inner', req.inner);
+      const outerSrc = await boundary('outer', req.outer);
+      const innerRing = innerSrc.ring;
+      const outerRing = outerSrc.ring;
+
+      let center = req.center;
+      let centerSource = { kind: 'coordinate' };
+      if (req.centerSource.kind !== 'coordinate') {
+        const row = await input('center', req.centerSource);
+        if (row) {
+          const geometry = JSON.parse(row.geometry_json);
+          const construction = row.construction_json ? JSON.parse(row.construction_json) : null;
+          if (req.centerSource.kind === 'feature_point') {
+            if (row.geometry_type === 'point') center = geometry;
+          } else if (construction && ['circle', 'ellipse'].includes(construction.type) && isPlainObject(construction.center)
+            && Number.isFinite(construction.center.x) && Number.isFinite(construction.center.z)) {
+            center = construction.center;
+          }
+          if (center) {
+            center = radial.roundPoint(center);
+            centerSource = { kind: req.centerSource.kind, feature_id: row.id, revision: row.revision };
+          } else {
+            errors.push({ code: 'ineligible_input', input: 'center', feature_id: row.id,
+              message: req.centerSource.kind === 'feature_point'
+                ? `Center feature #${row.id} is a ${row.geometry_type}, not a point.`
+                : `Feature #${row.id} has no circle or ellipse construction to take a center from.` });
+          }
+        }
+      }
+
+      const normalized = { center: center || null, count: req.count, offset_deg: req.offset_deg, omit_indices: req.omit_indices };
+      let report = { ok: false, normalized, errors, spokes: [] };
+      if (!errors.length) {
+        report = radial.computeRadial({
+          center, inner: innerRing, outer: outerRing, count: req.count, offset_deg: req.offset_deg, omit_indices: req.omit_indices,
+          labels: { inner: innerSrc.label, outer: outerSrc.label },
+        });
+      }
+
+      let targets = [];
+      let constructionId = null;
+      if (req.revises) ({ targets, constructionId } = await checkRevisionTargets(q, req, report.errors));
+
+      const mode = req.revises ? 'revision' : 'new_drafts';
+      const refs = { center, centerSource, inner: innerSrc.record, outer: outerSrc.record };
+      return { report, mode, targets, constructionId, refs };
+    };
+
+    if (req.dry_run) {
+      return readOnly(async (q) => {
+        const { report, mode } = await work(q);
+        const boundaryDrafts = ['inner', 'outer'].filter(r => req[r].materialize)
+          .map(role => ({ role, feature_class: req[role].materialize.columns.feature_class, geometry_type: req[role].materialize.columns.geometry_type }));
+        return { ...report, ok: report.ok && !report.errors.length, mode, dry_run: true, boundary_drafts: boundaryDrafts };
+      });
+    }
+
+    return transact(async (tx) => {
+      const { report, mode, targets, constructionId: keptId, refs } = await work(tx);
+      if (report.errors.length) {
+        const status = report.errors.some(e => e.code === 'not_found') ? 404 : 409;
+        throw new CanonicalError(status, `radial construction refused: ${report.errors.map(e => e.message).join(' ')}`,
+          { ...report, ok: false, mode });
+      }
+      const invalidSpokes = report.spokes.filter(s => s.status === 'invalid');
+      if (invalidSpokes.length) {
+        throw conflict(`radial construction refused: ${invalidSpokes.length} spoke(s) invalid; nothing was written. `
+          + (mode === 'revision' ? 'In revision mode an invalid spoke can be fixed only through the offset, the center or the boundaries.'
+            : 'Omit them explicitly, change the offset or count, or revise a boundary.'),
+        { ...report, ok: false, mode });
+      }
+
+      const constructionId = keptId || crypto.randomUUID();
+      // Materialized boundaries: ordinary independent drafts, written in this same
+      // transaction. The spokes record the circle definition, not a dependency on these rows;
+      // the id is noted only as what this request created.
+      const boundaryFeatures = [];
+      const boundaryRef = { inner: refs.inner, outer: refs.outer };
+      for (const role of ['inner', 'outer']) {
+        const m = req[role].kind === 'circle' ? req[role].materialize : null;
+        if (!m) continue;
+        const id = await insertRow(tx, spec, { ...m.columns, lifecycle_state: 'draft', provenance: 'authored' });
+        boundaryFeatures.push({ role, feature: await record(tx, spec, await loadRow(tx, spec, id)) });
+        boundaryRef[role] = { ...refs[role], materialized_feature_id: id };
+      }
+      const recordFor = (spoke) => ({
+        type: 'radial_spoke',
+        version: 1,
+        construction_id: constructionId,
+        center: report.normalized.center,
+        center_source: refs.centerSource,
+        inner: boundaryRef.inner,
+        outer: boundaryRef.outer,
+        count: req.count,
+        offset_deg: req.offset_deg,
+        omit_indices: req.omit_indices,
+        index: spoke.index,
+        angle_deg: spoke.angle_deg,
+        angle_convention: radial.ANGLE_CONVENTION,
+      });
+      const valid = report.spokes.filter(s => s.status === 'valid');
+      const created = [];
+      if (mode === 'revision') {
+        const byIndex = new Map(valid.map(s => [s.index, s]));
+        for (const canon of targets) {
+          const spoke = byIndex.get(JSON.parse(canon.construction_json).index);
+          const base = toInput(spec, await record(tx, spec, canon));
+          const normalizedRev = normalizeRevision(spec, canon, { ...base, geometry: spoke.geometry, construction: recordFor(spoke) });
+          const newId = await insertRevision(tx, spec, canon, normalizedRev, { state: 'draft', provenance: 'authored' });
+          created.push(await record(tx, spec, await loadRow(tx, spec, newId)));
+        }
+      } else {
+        const out = req.output;
+        for (const spoke of valid) {
+          const normalizedNew = spec.normalize({
+            feature_class: out.feature_class,
+            kind: out.kind,
+            geometry_type: 'linestring',
+            geometry: spoke.geometry,
+            construction: recordFor(spoke),
+            attributes: out.width_wu !== null ? { width_wu: out.width_wu } : null,
+            constraint_strength: out.constraint_strength,
+            name: `${out.name_prefix} #${spoke.index}`,
+          });
+          const newId = await insertRow(tx, spec, { ...normalizedNew.columns, lifecycle_state: 'draft', provenance: 'authored' });
+          created.push(await record(tx, spec, await loadRow(tx, spec, newId)));
+        }
+      }
+      return { ...report, ok: true, mode, construction_id: constructionId, features: created, boundary_features: boundaryFeatures };
+    });
+  };
+
+  /**
+   * Revision-mode integrity (plan §15.9), re-checked inside the construct transaction.
+   * Every problem is pushed onto `errors`, so a refusal lists all of them at once.
+   */
+  const checkRevisionTargets = async (q, req, errors) => {
+    const spec = ENTITIES.features;
+    const push = (code, message, extra = {}) => errors.push({ code, message, ...extra });
+    const targets = [];
+    const records = [];
+    for (const r of req.revises) {
+      const row = await loadRow(q, spec, r.feature_id);
+      const label = `Spoke ${r.index} (feature #${r.feature_id})`;
+      if (!row) { push('revision_target_missing', `${label} was not found.`, { index: r.index, feature_id: r.feature_id }); continue; }
+      if (row.lifecycle_state !== 'accepted') {
+        push('revision_target_not_accepted', `${label} is ${row.lifecycle_state}; revision mode revises accepted spokes only. Edit or delete drafts directly.`,
+          { index: r.index, feature_id: row.id });
+        continue;
+      }
+      const rec = row.construction_json ? JSON.parse(row.construction_json) : null;
+      if (!isRadialSpoke(rec)) {
+        push('revision_not_radial', `${label} carries no radial construction record.`, { index: r.index, feature_id: row.id });
+        continue;
+      }
+      if (row.revision !== r.expected_revision) {
+        push('revision_target_stale', `${label} changed from revision ${r.expected_revision} to ${row.revision}; reload and reconstruct.`,
+          { index: r.index, feature_id: row.id, expected_revision: r.expected_revision, current_revision: row.revision });
+      }
+      if (row.is_locked) {
+        push('revision_target_locked', `${label} is locked. Unlock it (its own request) before reconstructing in revision mode.`,
+          { index: r.index, feature_id: row.id });
+      }
+      const open = await q.get(`SELECT id FROM canonical_features WHERE revises_id = ? AND lifecycle_state = 'draft'`, [row.id]);
+      if (open) {
+        push('revision_open_revision', `${label} already has an open draft revision (#${open.id}); accept or delete it first.`,
+          { index: r.index, feature_id: row.id, open_revision_id: open.id });
+      }
+      if (rec.index !== r.index) {
+        push('revision_index_mismatch', `${label} is recorded as spoke ${rec.index}, not ${r.index}.`,
+          { index: r.index, feature_id: row.id, recorded_index: rec.index });
+      }
+      targets.push(row);
+      records.push(rec);
+    }
+    if (!records.length) return { targets, constructionId: null };
+
+    const ids = [...new Set(records.map(r => r.construction_id))];
+    if (ids.length > 1) {
+      push('revision_construction_mismatch', `The targets belong to ${ids.length} different constructions; revision mode reconstructs one construction at a time.`,
+        { construction_ids: ids });
+    }
+    const first = records[0];
+    const sameSet = (r) => r.count === first.count && JSON.stringify(r.omit_indices) === JSON.stringify(first.omit_indices);
+    if (!records.every(sameSet)) {
+      push('revision_records_disagree', 'The targets\' construction records disagree on count or omitted indices; use new-drafts mode.');
+    } else {
+      if (req.count !== first.count) {
+        push('revision_count_mismatch', `The construction has ${first.count} spokes; changing the count to ${req.count} is a different set of spokes. Use new-drafts mode.`,
+          { recorded_count: first.count, requested_count: req.count });
+      }
+      if (JSON.stringify(req.omit_indices) !== JSON.stringify(first.omit_indices)) {
+        push('revision_omit_mismatch', `The construction omits [${first.omit_indices.join(', ')}]; changing omissions to [${req.omit_indices.join(', ')}] is a different set of spokes. Use new-drafts mode.`,
+          { recorded_omit_indices: first.omit_indices, requested_omit_indices: req.omit_indices });
+      }
+    }
+
+    // Exactly one target per non-omitted index of the requested set.
+    const omitted = new Set(req.omit_indices);
+    const wanted = [];
+    for (let n = 0; n < req.count; n++) if (!omitted.has(n)) wanted.push(n);
+    const given = req.revises.map(r => r.index);
+    const missing = wanted.filter(n => !given.includes(n));
+    const extra = [...new Set(given.filter(n => !wanted.includes(n)))];
+    const repeated = [...new Set(given.filter((n, k) => given.indexOf(n) !== k))];
+    if (missing.length) push('revision_missing_index', `No target given for spoke index(es) ${missing.join(', ')}.`, { indices: missing });
+    if (extra.length) push('revision_index_mismatch', `Spoke index(es) ${extra.join(', ')} are not part of this construction's spoke set.`, { indices: extra });
+    if (repeated.length) push('revision_duplicate_index', `Spoke index(es) ${repeated.join(', ')} are named more than once.`, { indices: repeated });
+
+    // Every accepted spoke of the construction must be in the set, so none is left behind.
+    if (ids.length === 1) {
+      const named = new Set(req.revises.map(r => r.feature_id));
+      const rows = await q.all(
+        `SELECT id, construction_json FROM canonical_features WHERE lifecycle_state = 'accepted' AND construction_json LIKE ? ORDER BY id`,
+        ['%radial_spoke%']);
+      const left = rows.filter(row => {
+        const rec = JSON.parse(row.construction_json);
+        return isRadialSpoke(rec) && rec.construction_id === ids[0] && !named.has(row.id);
+      });
+      if (left.length) {
+        push('revision_missing_sibling',
+          `Accepted spoke(s) ${left.map(row => `#${row.id} (spoke ${JSON.parse(row.construction_json).index})`).join(', ')} of this construction are missing from the revision; revision mode must include every accepted spoke of the construction.`,
+          { feature_ids: left.map(row => row.id) });
+      }
+    }
+    return { targets, constructionId: ids[0] };
+  };
+
   // ── generator-facing query ─────────────────────────────────────────────────
 
   /**
@@ -726,6 +1245,7 @@ function createStore(appDb, { connection, hooks = {} } = {}) {
     restore,
     setLock,
     setReplacement,
+    constructRadial,
     query,
   };
 }

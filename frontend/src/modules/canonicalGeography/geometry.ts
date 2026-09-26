@@ -61,7 +61,46 @@ export interface RectConstruction {
   rotation_rad: number;
 }
 
-export type Construction = CircleConstruction | EllipseConstruction | RectConstruction;
+/**
+ * A spoke of a radial construction (plan §15.8). Written only by the server's radial
+ * constructor; the client reads and displays it and never constructs, adapts or moves one.
+ */
+/**
+ * A radial boundary built inline from a circle definition (plan §15.3.1): not a canonical
+ * feature. `method` and `points` (grid-rounded clicks) reproduce it exactly; `center`,
+ * `radius` and `segments` are the server's derived values, recorded for reading.
+ */
+export interface InlineCircleSource {
+  method: CircleConstruction['method'];
+  points: WorldXZ[];
+  center: WorldXZ;
+  radius: number;
+  segments: number;
+  max_chord_error_m: number;
+}
+
+/** A radial boundary input: an accepted feature at a pinned revision, or an inline circle. */
+export type RadialBoundaryRecord = { feature_id: number; revision: number }
+  /** `materialized_feature_id`: the independent boundary draft the originating request created, if it asked for one (audit only). */
+  | { circle: InlineCircleSource; materialized_feature_id?: number };
+
+export interface RadialSpokeConstruction {
+  type: 'radial_spoke';
+  version: 1;
+  construction_id: string;
+  center: WorldXZ;
+  center_source: { kind: 'coordinate' } | { kind: 'feature_point' | 'feature_construction_center'; feature_id: number; revision: number };
+  inner: RadialBoundaryRecord;
+  outer: RadialBoundaryRecord;
+  count: number;
+  offset_deg: number;
+  omit_indices: number[];
+  index: number;
+  angle_deg: number;
+  angle_convention: 'deg_from_+x_toward_+z';
+}
+
+export type Construction = CircleConstruction | EllipseConstruction | RectConstruction | RadialSpokeConstruction;
 
 export interface Constructed {
   ring: WorldXZ[];
@@ -170,6 +209,22 @@ export function circleThroughPoints(a: WorldXZ, b: WorldXZ, c: WorldXZ): Constru
 /** Centre, then any rim point. */
 export const circleFromCenter = (center: WorldXZ, rim: WorldXZ): Constructed | null =>
   circlePolygon(center, distance(center, rim), 'center_radius');
+
+/** Clicks each circle method takes: three rim points, or the centre then a rim point. */
+export const CIRCLE_METHOD_POINTS: Record<CircleConstruction['method'], number> = { three_point: 3, center_radius: 2 };
+
+/**
+ * A circle from its defining clicks, exactly as the tracing tool builds one: every click is
+ * put on the 0.001 wu grid first, then the method's constructor runs. The same definition
+ * always gives the same ring, so a definition (method + points) is a reproducible input —
+ * the radial constructor stores it, and the server's mirror
+ * (`backend/canonicalGeography/circleConstruction.js`) recomputes it.
+ */
+export function circleFromDefinition(method: CircleConstruction['method'], points: WorldXZ[]): Constructed | null {
+  if (points.length !== CIRCLE_METHOD_POINTS[method]) return null;
+  const p = points.map(roundPoint);
+  return method === 'three_point' ? circleThroughPoints(p[0], p[1], p[2]) : circleFromCenter(p[0], p[1]);
+}
 
 /** Signed distance of `p` from the line through a in direction (ux, uz) (unit), measured along its left normal. */
 const perpendicular = (p: WorldXZ, a: WorldXZ, ux: number, uz: number) => (p.x - a.x) * -uz + (p.z - a.z) * ux;

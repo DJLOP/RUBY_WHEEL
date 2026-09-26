@@ -69,7 +69,7 @@ import { Overpasses, OverpassPreview } from './components/Overpasses';
 import { Sidewalks } from './components/Sidewalks';
 import { Signs, AutoSignage, useSignEditing, type SignData } from './modules/signs';
 import { ReferenceLayers, ReferenceLayerManager, ReferenceLayerFraming, withPreview, type ReferenceLayerPreview, type ReferenceFrameRequest } from './modules/referenceLayers';
-import { CanonicalGeographyLayer, CanonicalGeographyManager, CanonicalPickTool, LandSelectionTool, TracingTool, createLandSelection, createMapPickStore, createTracingSession } from './modules/canonicalGeography';
+import { CanonicalGeographyLayer, CanonicalGeographyManager, CanonicalPickTool, LandSelectionTool, RadialConstructionPreview, TracingTool, createLandSelection, createMapPickStore, createRadialSession, createTracingSession } from './modules/canonicalGeography';
 import { type RemoteFont } from './utils/fontLoader';
 import type { LayoutType, WaterType, RoundaboutDensity } from './cityGen';
 import { GlobalCameraCapture, CursorPivotControls, CameraController, KeyboardPan, AdaptiveClipping } from './components/Camera';
@@ -115,6 +115,8 @@ function App() {
   const canonicalLandSelection = useMemo(() => createLandSelection(), []);
   /** Click-to-inspect of canonical geometry: the scene tool reports clicks, the manager opens the feature. */
   const canonicalMapPick = useMemo(() => createMapPickStore(), []);
+  /** The radial constructor's nonpersistent preview, shared by the manager panel and the in-scene preview. */
+  const canonicalRadial = useMemo(() => createRadialSession(), []);
   /** A pending request to look straight down at one layer. The nonce makes it repeatable. */
   const [referenceFrameRequest, setReferenceFrameRequest] = useState<ReferenceFrameRequest | null>(null);
   /** Unsaved reference-layer calibration, shown in this client's scene only. */
@@ -1585,6 +1587,7 @@ function App() {
           session={canonicalTracing}
           selection={canonicalLandSelection}
           pick={canonicalMapPick}
+          radial={canonicalRadial}
           tracingActive={view === 'canonical_geo'}
           onTracingChange={(active) => setView(active ? 'canonical_geo' : 'list')}
           overlayVisible={canonicalOverlayVisible}
@@ -2848,6 +2851,10 @@ function App() {
             {showCanonicalGeographyManager && isPrimaryAdmin && (
               <CanonicalPickTool pick={canonicalMapPick} session={canonicalTracing} selection={canonicalLandSelection}
                 features={canonicalGeography.features} active={view === 'canonical_geo'} />
+            )}
+            {/* Radial construction preview: drawn only while the constructor is open; map clicks only when it asks for one. */}
+            {showCanonicalGeographyManager && isPrimaryAdmin && (
+              <RadialConstructionPreview session={canonicalRadial} features={canonicalGeography.features} active={view === 'canonical_geo'} />
             )}
             <WorldGrid name="city-grid" raycast={() => null} infiniteGrid fadeDistance={750} fadeStrength={1.5} cellSize={1} cellThickness={0.7} sectionSize={10} sectionThickness={1.2} sectionColor={THEMES[currentTheme].gridSection} cellColor={THEMES[currentTheme].gridCell} />
             {token !== '' && (

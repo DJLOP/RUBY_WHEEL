@@ -12,7 +12,7 @@
 
 import type { GeometryType, WorldXZ } from './types';
 import {
-  circleFromCenter, circleThroughPoints, closestOnSegment, distance, ellipseFromPoints, rectangleFromPoints,
+  circleFromDefinition, closestOnSegment, distance, ellipseFromPoints, rectangleFromPoints,
   roundPoint, simplifyLine, simplifyRing, type Construction, type Constructed,
 } from './geometry';
 
@@ -37,6 +37,14 @@ export type TraceMode = 'vertex' | 'circle_3pt' | 'circle_center' | 'ellipse' | 
 /** Clicks each constructor needs before it produces a ring. */
 export const CONSTRUCTOR_CLICKS: Record<Exclude<TraceMode, 'vertex'>, number> = {
   circle_3pt: 3, circle_center: 2, ellipse: 3, rect: 3,
+};
+
+/** What each constructor asks the editor to click (shown by the tracing panel and the radial constructor). */
+export const CONSTRUCTOR_HINTS: Record<Exclude<TraceMode, 'vertex'>, string> = {
+  circle_3pt: 'Click 3 points on the circle’s rim.',
+  circle_center: 'Click the centre, then a point on the rim.',
+  ellipse: 'Click the centre, the end of one semi-axis, then a point at the other semi-axis’ extent.',
+  rect: 'Click two corners along one edge, then a point on the opposite edge.',
 };
 
 export type SnapKind = 'vertex' | 'edge';
@@ -129,8 +137,8 @@ const minVertices = (s: TraceState) => (s.geometryType === 'polygon' || s.closed
 
 function construct(mode: Exclude<TraceMode, 'vertex'>, pts: WorldXZ[]): Constructed | null {
   switch (mode) {
-    case 'circle_3pt': return circleThroughPoints(pts[0], pts[1], pts[2]);
-    case 'circle_center': return circleFromCenter(pts[0], pts[1]);
+    case 'circle_3pt': return circleFromDefinition('three_point', pts);
+    case 'circle_center': return circleFromDefinition('center_radius', pts);
     case 'ellipse': return ellipseFromPoints(pts[0], pts[1], pts[2]);
     case 'rect': return rectangleFromPoints(pts[0], pts[1], pts[2]);
   }
@@ -225,9 +233,14 @@ export const translateSnapshot = (s: TraceState): TranslateSnapshot =>
 
 const shift = (p: WorldXZ, dx: number, dz: number) => roundPoint({ x: p.x + dx, z: p.z + dz });
 
-/** A construction record moved with its geometry: the centre moves; radii, sizes and rotation do not. */
+/**
+ * A construction record moved with its geometry: the centre moves; radii, sizes and
+ * rotation do not. A radial spoke's record describes its inputs (center, boundaries at
+ * pinned revisions), which a move does not carry along, so it is cleared, never adapted.
+ */
 export function translateConstruction(c: Construction | null, dx: number, dz: number): Construction | null {
-  return c ? { ...c, center: shift(c.center, dx, dz) } : null;
+  if (!c || c.type === 'radial_spoke') return null;
+  return { ...c, center: shift(c.center, dx, dz) };
 }
 
 /** Start a whole-shape move: remember the geometry so UNDO can restore it. */

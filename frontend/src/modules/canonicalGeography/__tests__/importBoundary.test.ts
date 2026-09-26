@@ -20,7 +20,8 @@ const MODULE = resolve(__dirname, '..');
 const RASTER_UI = new Set(['TracingTool.tsx', 'CanonicalGeographyManager.tsx']);
 /** Pure modules: no UI framework, renderer, network or raster. */
 const PURE = ['types.ts', 'constraints.ts', 'physicalScale.ts', 'geometry.ts', 'tracing.ts', 'featureEditing.ts',
-  'landSelection.ts', 'scopes.ts', 'anchors.ts', 'connections.ts', 'mapPick.ts', 'scopeContents.ts'];
+  'landSelection.ts', 'scopes.ts', 'anchors.ts', 'connections.ts', 'mapPick.ts', 'scopeContents.ts',
+  'radialConstruction.ts', 'radialSession.ts', 'radialWorkflow.ts'];
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

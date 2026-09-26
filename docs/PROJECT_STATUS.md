@@ -4,6 +4,8 @@
 **Current implementation branch:** `feature/canonical-geography`  
 **Latest pushed accepted implementation commit:** `59ca91d` — Add canonical geography anchors scopes and connections (WP6)  
 **Post-WP6 architecture amendment commit:** `1dd443b` — Reconcile post-WP6 generation architecture (documentation only; pushed)\
+**AT1 plan commit:** `7e4f1ad` — Plan deterministic canonical geometry construction (plan §15)
+**AT1 closeout commit:** pending — AT1 is complete and accepted; the human owner makes the closeout commit
 **Canonical-geography plan baseline commit:** `2eaff3e` — Approve canonical geography implementation plan  
 **Requirements/architecture baseline commit:** `8f02ed4` — Define generation hierarchy and canonical city scale  
 **Imperial City generation bible commit:** `2b446c2` — Add Imperial City generation bible  
@@ -25,8 +27,8 @@
 - `docs/CANONICAL_GEOGRAPHY_PLAN.md` is approved and committed (`2eaff3e`).
 - Canonical Geography WP1–WP6 are complete, reviewed, human-accepted, committed, and pushed on `feature/canonical-geography`. WP6 — anchors, connections, scopes, map selection, context inspection, and recoverable retirement — is commit `59ca91d` (`Add canonical geography anchors scopes and connections`).
 - The documentation-only post-WP6 architecture amendment is complete, committed and pushed as `1dd443b`, and accepted as the current architectural baseline.
-- The human owner chose to insert a small canonical-geometry authoring-tools slice before WP7 (option B below). That slice, **AT1 — deterministic radial construction**, is planned in `docs/CANONICAL_GEOGRAPHY_PLAN.md` §15 and has not started.
-- WP7 has not started.
+- The human owner chose to insert a small canonical-geometry authoring-tools slice before WP7 (option B below). That slice, **AT1 — deterministic radial construction**, is planned in `docs/CANONICAL_GEOGRAPHY_PLAN.md` §15 (committed `7e4f1ad`), is **complete and accepted**: implemented, automatically validated, human-accepted live against the real Imperial City geometry, and passed Sol's bounded final review (`SAFE TO ACCEPT AND COMMIT`). It is ready for its closeout commit, which has not been made yet.
+- WP7 has not started. It is the immediate next work package after the AT1 closeout checkpoint.
 
 ## Primary Product Objective
 
@@ -96,8 +98,8 @@ The approved capability establishes a governed, versioned canonical spatial subs
 - **WP3–WP4 pushed checkpoint:** commit `7e91644` (`Add canonical geography query and rendering`).
 - **WP5 — Tracing and feature editing:** complete, human-accepted, Sol-reviewed, committed and pushed as `0882790` (`Add canonical geography tracing and editing`).
 - **WP6 — Anchors, connections, scopes UI:** complete, human-accepted, Sol-reviewed clean, committed and pushed as `59ca91d` (`Add canonical geography anchors scopes and connections`).
-- **Pre-WP7 slice AT1 — Deterministic radial construction (R-014, A-020):** planned (`docs/CANONICAL_GEOGRAPHY_PLAN.md` §15), pending human review; not started.
-- **WP7 — Import/export, legacy promotion, Bible-derived initial register, final verification:** not started; scope unchanged.
+- **Pre-WP7 slice AT1 — Deterministic radial construction (R-014, A-020):** **complete and accepted** per `docs/CANONICAL_GEOGRAPHY_PLAN.md` §15 on `feature/canonical-geography`: implementation, automated validation, live human acceptance (after three human-acceptance remediations, below) and Sol's bounded final review (`SAFE TO ACCEPT AND COMMIT`) are done. **Closeout commit pending** (working tree, not yet committed).
+- **WP7 — Import/export, legacy promotion, Bible-derived initial register, final verification:** not started; scope unchanged; next after the AT1 closeout commit.
 
 ### Canonical-geography capability now available through WP6
 
@@ -175,6 +177,53 @@ Human browser acceptance verified, among other things:
 A final Sol review found one HIGH blocker: retired anchors, scopes, and connections could become unreachable in the UI. That was remediated with archive/restore access matching the feature recoverability model. Sol's bounded recheck closed the finding and reported WP6 safe to accept, commit, and proceed to the documentation amendment. WP6 was then committed and pushed as `59ca91d`.
 
 
+### AT1 implementation status (complete and accepted; closeout commit pending)
+
+Implemented from plan §15 without changing its semantics (later amended in §15 by the three human-acceptance remediations below). Starting HEAD `7e4f1ad`; the closeout commit has not been made yet.
+
+- **Backend.** `backend/canonicalGeography/radialConstruction.js` (pure ray/closed-ring core: offset normalization, +X→+Z angles with exact axis directions, per-ring crossings/touches/collinear overlaps, endpoint selection `[Iₖ, O₁]`, per-spoke report). `store.js` `constructRadial`: one `BEGIN IMMEDIATE` transaction that reads the pinned accepted inputs, recomputes, and inserts only drafts (new-drafts mode) or draft revisions (revision mode), all or nothing; `dry_run` reads only. `POST /api/canonical-geography/constructions/radial` (`authenticate, requireWorldEditor`, dry run included; one emit on success, none on refusal or dry run). `entities.js` gains the strict `radial_spoke` record; create/proposal refuse a client-supplied record, and a PATCH or proposal revision may keep one only over unchanged geometry.
+- **Reviewed edge cases, as specified.** A forward multi-vertex on-ray run on either ring is `collinear_overlap` (with its `t` range and X/Z endpoints) wherever it lies along the ray; no ordering rule is invented; a single on-ray vertex stays a crossing or a touch; a run wholly behind the center is ignored. Revision mode requires the recorded `count` and `omit_indices`, agreeing records, one accepted target per non-omitted index, every accepted sibling of the `construction_id`, unlocked targets with no open draft revision and current revisions — re-checked inside the transaction; any failure is a 409 listing every reason, with zero rows written and siblings byte-identical.
+- **Frontend.** `radialConstruction.ts` (client mirror; byte-identical reports to the server module on all fixtures and on 40 seeded irregular cases), `radialSession.ts`/`radialWorkflow.ts` (pure preview state and revision-mode/output decisions), `RadialConstructionPanel.tsx` (pickers with ineligibility reasons, center sources, N/θ₀ with nudges and Aim spoke 0, live spoke table with explicit Omit, output settings, Create, review list with explicit Accept selected and Discard drafts, Reconstruct with revision/new-drafts choice), `RadialConstructionPreview.tsx` (non-raycast PREVIEW-style scene lines, spoke 0 emphasized, error rays/points, center/aim/boundary map clicks). The manager gains only the launcher, tool exclusivity (tracing, land picking and map inspection), and the inspector's read-only record, stale-inputs notice and Reconstruct/Review entry points; `translateConstruction` clears a `radial_spoke` record. App mounts the preview in the world branch only.
+- **Shared fixtures.** `radial_construction_cases.v1.json` (31 synthetic cases covering §15.14 groups 1–8, plus parameter cases), byte-identical in backend and frontend.
+
+Automated validation (2026-09-25, Windows, wall-clock):
+
+- Focused backend (`canonical_geography_radial_geometry`, `canonical_geography_radial_construction`): **91 passed**, 2.3 s.
+- Focused frontend (radial mirror, panel, preview, translation, tracing, import boundary): **155 passed**, 12.4 s.
+- Backend canonical-geography: **24 files / 486 passed**, 4.5 s.
+- Frontend canonical-geography: **28 files / 412 passed, 1 skipped**, 14.1 s.
+- Full backend: **108 files / 2,618 passed**, 10.9 s (no material change from ~10 s at WP6).
+- Full frontend: **161 files / 3,299 passed, 1 skipped**, 42.8 s (~41 s at WP6).
+- Frontend production build: passed (the inherited >500 kB chunk warning only).
+- Live-preview timing (§15.5): N = 16 against two 4,096-vertex rings, six recomputes in 11 ms of test time (≈2 ms each; target < 50 ms). Backend: N = 360 against two 20,000-vertex rings well under the 2 s test bound.
+- 15 targeted mutations of the load-bearing guards (overlap/behind-center handling, sibling/count/omission/record-agreement/lock checks, record refusal and record/geometry guard, draft-only insert, client revision gating, record clearing on translate, review-list fallback) were each caught by the tests.
+
+Developer runtime smoke (not human acceptance), against throwaway copies of the database with synthetic rings: API 401/403, dry run, draft-only create absent from `/query`, per-record accept (r1, digest change), lock/count/sibling refusals naming the spoke, revision mode (same ids, r2), inputs unchanged; and in the browser: launcher, eligible-only pickers, center from a circle construction, live preview in the scene, Create → review list (nothing pre-ticked) → Accept selected (confirmation, two per-record accepts) → Discard drafts (drafts only) → inspector record → Reconstruct (revision mode refused with its reason). The real `backend/city.db` was not written.
+
+#### Human-acceptance remediation 1 — inline circle boundaries
+
+Live acceptance found that requiring both boundaries to be accepted features forced a detour (create, accept, then select a separate circle) for circular boundaries. Remediated (plan §15.3.1, §15.8, §15.11, §15.14 case 11 and §15.15 amended minimally): each boundary is independently an **existing canonical boundary** (unchanged) or an **inline constructed circle** built in the radial workflow with the shape creator's own circle methods (CIRCLE 3PT, CIRCLE C+R — same click rounding, constructor and segmentation). An inline circle is a construction input, never a feature: nothing is created or accepted for it. The rule is now "persisted inputs are deterministic and reconstructable": the request and the construction record carry the circle definition (method + grid-rounded clicks, plus the derived centre/radius/segments, which must match it); the server recomputes the circle with a byte-identical mirror (`backend/canonicalGeography/circleConstruction.js`) and refuses client geometry and degenerate definitions. The tracing tool and the radial tool now share `circleFromDefinition` in `geometry.ts`. Revision-mode count/omission/sibling rules are unchanged; a changed circle is a boundary-input change like any other. REQUIREMENTS/ARCHITECTURE unchanged: A-020 permits "accepted canonical inputs and explicit parameters", and an inline circle definition is explicit parameters.
+
+Validation after remediation (2026-09-25, wall-clock): backend focused **111 passed** (2.6 s); frontend focused **189 passed** (15.2 s); backend canonical **24 files / 507 passed** (4.6 s); frontend canonical **28 files / 431 passed, 1 skipped** (16.7 s); full backend **108 files / 2,639 passed** (11.0 s); full frontend **161 files / 3,318 passed, 1 skipped** (45.9 s, 43.7 s on a rerun — variance, no material increase); production build passed. Six new targeted mutations (circle key refusal, record/definition match, click rounding on both sides, ring validation, request carrying geometry) were each caught.
+
+#### Human-acceptance remediation 2 — optional materialization of a constructed boundary
+
+Live acceptance found that a constructed circle could only ever be scaffolding, even when the ring is intended canon (a wall). Remediated (plan §15.3.1, §15.7, §15.8, §15.9, §15.11 amended minimally): each inline circle boundary has an explicit, default-off **CREATE THIS BOUNDARY AS CANONICAL DRAFT** option with ordinary class/kind/strength/name. On Create, the server builds that draft from the exact server-resolved circle, with the shape creator's own `circle` construction record, as a polygon (as the shape creator stores a circle) or, for `route`, a closed linestring (§4.4 wall ring), validated by the ordinary feature normalization, in the same transaction as the spoke drafts (any failure writes nothing). It is an independent `draft`, never auto-accepted; the spokes keep only the circle definition plus an audit-only `materialized_feature_id`, so editing or deleting the boundary draft never changes them. Existing canonical boundaries can never be materialized (400). Reconstruct restores the circle but leaves materialization off; asking again creates one new separate draft and never revises the earlier one. The review list shows boundary drafts apart from spokes, and Create states the total (e.g. "CREATE 9 DRAFTS: 1 BOUNDARY + 8 SPOKES").
+
+Validation after remediation 2 (2026-09-25, wall-clock): backend focused **120 passed** (2.6 s); frontend focused **193 passed** (17.3 s); backend canonical **24 files / 516 passed** (4.5 s); frontend canonical **28 files / 435 passed, 1 skipped** (18.8 s); full backend **108 files / 2,648 passed** (10.4 s); full frontend **161 files / 3,322 passed, 1 skipped** (43.6 s); production build passed. Six targeted mutations of the new guards were each caught.
+
+#### Human-acceptance remediation 3 — materialized boundary width
+
+Live acceptance found that a materialized `route` boundary (a wall ring) could not carry a width, and that the lower output block did not say it governs only the spokes. Remediated (plan §15.3.1, §15.3.4 amended minimally): each materialized boundary independently accepts an optional WIDTH wu when its class is `route`, stored as the ordinary route attribute `attributes.width_wu` and validated by the ordinary route-attribute rules (other classes refuse it; an invalid width refuses the whole create with zero writes). The lower block is now headed SPOKE OUTPUT. Boundary and spoke widths are independent; width semantics are unchanged.
+
+Validation after remediation 3 (2026-09-25, wall-clock; the latest AT1 results): backend focused **125 passed** (2.7 s); frontend focused **198 passed** (21.0 s); backend canonical **521 passed** (4.7 s); frontend canonical **440 passed, 1 skipped** (22.5 s); full backend **108 files / 2,653 passed** (11.7 s); full frontend **161 files / 3,327 passed, 1 skipped** (44.9 s); production build passed. Three targeted mutations of the width wiring were each caught.
+
+#### Human acceptance and final review
+
+- **Human acceptance (§15.15): passed**, live against the real Imperial City reference and canon. It produced and persisted the canonical outer wall geometry with its own canonical route width, and the radial spoke-wall geometry with independently specified spoke-wall widths.
+- **Sol bounded final implementation review: `SAFE TO ACCEPT AND COMMIT`.**
+- **Remaining:** the AT1 closeout commit, by the human owner. Then WP7.
+
 ## Post-Reference-Layer Design Direction
 
 These decisions are recorded authoritatively as R-006, R-007, R-011, R-013, R-014, R-025, R-026, R-031 in `docs/REQUIREMENTS.md` and A-015–A-020 in `docs/ARCHITECTURE.md` (baseline `8f02ed4`, amended post-WP6); those documents govern if this summary differs.
@@ -197,7 +246,7 @@ Generation-facing work must preserve the following decisions:
 - Lower-level feasibility must be able to feed back upward rather than forcing impossible allocations.
 - District planning should later support multiple density/intensity nodes with falloff rather than one flat density value, including city-center pull and district-specific centers (R-031, ARCHITECTURE §8).
 - Ordinary urban fabric should remain lightweight; selected structures may later be promoted into semantic POIs.
-- A canonical-geometry authoring aid supports exact parametric radial/spoke geometry from a chosen center between accepted inner/outer boundaries. This is deterministic construction tooling, not procedural city generation (R-014, A-020), and is planned as pre-WP7 slice AT1 (`docs/CANONICAL_GEOGRAPHY_PLAN.md` §15).
+- A canonical-geometry authoring aid supports exact parametric radial/spoke geometry from a chosen center between inner/outer boundaries that are accepted canonical geometry or deterministic constructed circles (optionally materialized as ordinary canonical drafts). This is deterministic construction tooling, not procedural city generation (R-014, A-020), delivered and accepted as pre-WP7 slice AT1 (`docs/CANONICAL_GEOGRAPHY_PLAN.md` §15).
 
 ## Known Physical Scale
 
@@ -213,18 +262,18 @@ The current Imperial City reference layer was explicitly corrected to the canoni
 
 ## Immediate Objective
 
-Implement **pre-WP7 slice AT1 — deterministic radial construction** as specified in `docs/CANONICAL_GEOGRAPHY_PLAN.md` §15, once the human owner has reviewed and approved that plan section.
+The **AT1 closeout commit** (human owner), then **WP7**. AT1 — deterministic radial construction (`docs/CANONICAL_GEOGRAPHY_PLAN.md` §15) — is complete and accepted, and not yet committed.
 
 AT1 is a small, generic canonical-geometry authoring tool that executes R-014 / A-020. Its parts:
 
-- A center, two accepted closed boundaries, a spoke count `N`, and an angular offset `θ₀` produce a deterministic preview.
+- A center, two closed boundaries (accepted canonical boundaries, or inline constructed circles that may optionally be materialized as ordinary canonical drafts), a spoke count `N`, and an angular offset `θ₀` produce a deterministic preview.
 - Persisting creates one draft linestring feature per spoke, with a `radial_spoke` construction record, in one all-or-nothing transaction.
 - Acceptance stays explicit and per record, through the existing lifecycle.
 - Nothing rewrites accepted canon or inputs automatically.
 
 AT1 contains no world-specific code, no district or scope creation, no clipping, and no generation.
 
-WP7 comes immediately after AT1, with its scope unchanged. WP7 remains responsible for interchange import/export, legacy promotion, the Bible-derived `docs/canonical/initial_register.v1.json`, and final end-to-end verification.
+WP7 has not started. It comes immediately after the AT1 closeout checkpoint, with its scope unchanged. WP7 remains responsible for interchange import/export, legacy promotion, the Bible-derived `docs/canonical/initial_register.v1.json`, and final end-to-end verification.
 
 The canonical-geography slice remains a constraint substrate. It does not yet implement the future generation-workset planner or district density model.
 
@@ -245,11 +294,9 @@ Do not yet implement:
 
 ## Next Planned Repository Step
 
-1. Human review of the AT1 plan (`docs/CANONICAL_GEOGRAPHY_PLAN.md` §15) and this status update.
-2. Commit the plan update separately on `feature/canonical-geography`, only when the user authorizes the commit.
-3. Implement AT1 on `feature/canonical-geography`, validate it per §15.14, run human acceptance per §15.15, and stop for acceptance and commit authorization.
-4. Then proceed to WP7, with its scope unchanged.
-5. Keep the noted CITY_NET upstream update parked. Evaluate upstream sync/contribution strategy only at a stable checkpoint.
+1. AT1 closeout commit on `feature/canonical-geography`, made by the human owner (AT1 is implemented, validated, human-accepted and Sol-reviewed `SAFE TO ACCEPT AND COMMIT`; nothing of it is committed yet beyond the plan, `7e4f1ad`).
+2. Then begin WP7, with its scope unchanged. WP7 has not started.
+3. Keep the noted CITY_NET upstream update parked. Evaluate upstream sync/contribution strategy only at a stable checkpoint.
 
 The post-WP6 decision between proceeding directly to WP7 (A) and inserting the authoring-tools slice first (B) has been made: **B**.
 

@@ -9,10 +9,14 @@
  */
 
 import type {
-  CanonicalQueryBundle,
+  CanonicalQueryBundle, FeatureClass, WorldXZ,
   CanonicalAnchor, CanonicalConnection, CanonicalFeature, GeoScope, LifecycleState, ReplacementState,
 } from './types';
 import type { AnchorRegister } from './anchors';
+import type { RadialReport } from './radialConstruction';
+import type { RadialOutputSettings } from './radialWorkflow';
+
+export type { RadialOutputSettings };
 
 export const CANONICAL_API = '/api/canonical-geography';
 
@@ -154,4 +158,58 @@ export const canonicalApi = {
   /** Accepted anchors with derived placed/unplaced status and part summary (WP6). */
   anchorRegister: (token: string) =>
     canonicalRequest<AnchorRegister>(token, 'GET', `/anchors/register?_t=${Date.now()}`),
+  /**
+   * Radial construction (plan §15): drafts only, all or nothing. New-drafts mode sends
+   * `output`; revision mode sends `revises` and no output. A refusal carries the full
+   * report (construction errors and per-spoke errors) in the error body.
+   */
+  constructRadial: (token: string, body: RadialConstructRequest) =>
+    canonicalRequest<RadialConstructResult>(token, 'POST', '/constructions/radial', { ...body, dry_run: false }),
+  /** The same request as a server dry run: the server's report, nothing written. For tests and debugging, not the live preview. */
+  previewRadialOnServer: (token: string, body: RadialConstructRequest) =>
+    canonicalRequest<RadialReport & { dry_run: true; mode: RadialMode }>(token, 'POST', '/constructions/radial', { ...body, dry_run: true }),
 };
+
+// ── radial construction (plan §15.11) ─────────────────────────────────────────
+
+export type RadialMode = 'new_drafts' | 'revision';
+
+export interface RadialInputPin { feature_id: number; expected_revision: number }
+
+/** An inline circle boundary: the shape creator's circle method and its defining clicks; the server derives the circle. */
+export interface RadialCircleSource {
+  circle: { method: 'three_point' | 'center_radius'; points: WorldXZ[] };
+  /** Also create this circle as an ordinary canonical feature draft, in the same transaction as the spokes. */
+  materialize?: RadialMaterialize;
+}
+
+/** Ordinary feature semantics for a materialized boundary draft (existing vocabularies; validated like any draft). */
+export interface RadialMaterialize {
+  feature_class: FeatureClass;
+  kind?: string | null;
+  constraint_strength?: 'hard' | 'soft';
+  name?: string | null;
+  /** `route` only: the ordinary route width attribute (full width, world units), independent of the spokes' width. */
+  width_wu?: number | string | null;
+}
+
+export interface RadialConstructRequest {
+  inner: RadialInputPin | RadialCircleSource;
+  outer: RadialInputPin | RadialCircleSource;
+  center?: WorldXZ;
+  center_source?: { kind: 'coordinate' } | ({ kind: 'feature_point' | 'feature_construction_center' } & RadialInputPin);
+  count: number;
+  offset_deg: number;
+  omit_indices?: number[];
+  output?: RadialOutputSettings;
+  revises?: { index: number; feature_id: number; expected_revision: number }[];
+}
+
+export interface RadialConstructResult extends RadialReport {
+  mode: RadialMode;
+  construction_id: string;
+  /** The spoke drafts (or draft revisions). */
+  features: CanonicalFeature[];
+  /** Materialized boundary drafts, if any were requested: independent ordinary drafts. */
+  boundary_features: { role: 'inner' | 'outer'; feature: CanonicalFeature }[];
+}

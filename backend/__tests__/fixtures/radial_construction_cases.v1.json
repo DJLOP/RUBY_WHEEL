@@ -1,0 +1,595 @@
+{
+  "format": "ruby_wheel.radial_construction_cases",
+  "version": 1,
+  "note": "Synthetic rings only (plan §15.2, §15.14). A case boundary is a ring name or an inline circle definition {circle: {method, points}}; `circles` pins the shape creator circle semantics. Shared byte-identically by backend and frontend tests. Non-finite and -0 values in `parameters` are strings, converted by the tests (JSON cannot carry them).",
+  "angle_convention": "deg_from_+x_toward_+z",
+  "rings": {
+    "ring_01": {"geometry_type":"polygon","geometry":{"outer":[{"x":100,"z":0},{"x":99.518,"z":9.802},{"x":98.079,"z":19.509},{"x":95.694,"z":29.028},{"x":92.388,"z":38.268},{"x":88.192,"z":47.14},{"x":83.147,"z":55.557},{"x":77.301,"z":63.439},{"x":70.711,"z":70.711},{"x":63.439,"z":77.301},{"x":55.557,"z":83.147},{"x":47.14,"z":88.192},{"x":38.268,"z":92.388},{"x":29.028,"z":95.694},{"x":19.509,"z":98.079},{"x":9.802,"z":99.518},{"x":0,"z":100},{"x":-9.802,"z":99.518},{"x":-19.509,"z":98.079},{"x":-29.028,"z":95.694},{"x":-38.268,"z":92.388},{"x":-47.14,"z":88.192},{"x":-55.557,"z":83.147},{"x":-63.439,"z":77.301},{"x":-70.711,"z":70.711},{"x":-77.301,"z":63.439},{"x":-83.147,"z":55.557},{"x":-88.192,"z":47.14},{"x":-92.388,"z":38.268},{"x":-95.694,"z":29.028},{"x":-98.079,"z":19.509},{"x":-99.518,"z":9.802},{"x":-100,"z":0},{"x":-99.518,"z":-9.802},{"x":-98.079,"z":-19.509},{"x":-95.694,"z":-29.028},{"x":-92.388,"z":-38.268},{"x":-88.192,"z":-47.14},{"x":-83.147,"z":-55.557},{"x":-77.301,"z":-63.439},{"x":-70.711,"z":-70.711},{"x":-63.439,"z":-77.301},{"x":-55.557,"z":-83.147},{"x":-47.14,"z":-88.192},{"x":-38.268,"z":-92.388},{"x":-29.028,"z":-95.694},{"x":-19.509,"z":-98.079},{"x":-9.802,"z":-99.518},{"x":0,"z":-100},{"x":9.802,"z":-99.518},{"x":19.509,"z":-98.079},{"x":29.028,"z":-95.694},{"x":38.268,"z":-92.388},{"x":47.14,"z":-88.192},{"x":55.557,"z":-83.147},{"x":63.439,"z":-77.301},{"x":70.711,"z":-70.711},{"x":77.301,"z":-63.439},{"x":83.147,"z":-55.557},{"x":88.192,"z":-47.14},{"x":92.388,"z":-38.268},{"x":95.694,"z":-29.028},{"x":98.079,"z":-19.509},{"x":99.518,"z":-9.802}],"holes":[]}},
+    "ring_02": {"geometry_type":"polygon","geometry":{"outer":[{"x":300,"z":0},{"x":298.555,"z":29.405},{"x":294.236,"z":58.527},{"x":287.082,"z":87.085},{"x":277.164,"z":114.805},{"x":264.576,"z":141.419},{"x":249.441,"z":166.671},{"x":231.903,"z":190.318},{"x":212.132,"z":212.132},{"x":190.318,"z":231.903},{"x":166.671,"z":249.441},{"x":141.419,"z":264.576},{"x":114.805,"z":277.164},{"x":87.085,"z":287.082},{"x":58.527,"z":294.236},{"x":29.405,"z":298.555},{"x":0,"z":300},{"x":-29.405,"z":298.555},{"x":-58.527,"z":294.236},{"x":-87.085,"z":287.082},{"x":-114.805,"z":277.164},{"x":-141.419,"z":264.576},{"x":-166.671,"z":249.441},{"x":-190.318,"z":231.903},{"x":-212.132,"z":212.132},{"x":-231.903,"z":190.318},{"x":-249.441,"z":166.671},{"x":-264.576,"z":141.419},{"x":-277.164,"z":114.805},{"x":-287.082,"z":87.085},{"x":-294.236,"z":58.527},{"x":-298.555,"z":29.405},{"x":-300,"z":0},{"x":-298.555,"z":-29.405},{"x":-294.236,"z":-58.527},{"x":-287.082,"z":-87.085},{"x":-277.164,"z":-114.805},{"x":-264.576,"z":-141.419},{"x":-249.441,"z":-166.671},{"x":-231.903,"z":-190.318},{"x":-212.132,"z":-212.132},{"x":-190.318,"z":-231.903},{"x":-166.671,"z":-249.441},{"x":-141.419,"z":-264.576},{"x":-114.805,"z":-277.164},{"x":-87.085,"z":-287.082},{"x":-58.527,"z":-294.236},{"x":-29.405,"z":-298.555},{"x":0,"z":-300},{"x":29.405,"z":-298.555},{"x":58.527,"z":-294.236},{"x":87.085,"z":-287.082},{"x":114.805,"z":-277.164},{"x":141.419,"z":-264.576},{"x":166.671,"z":-249.441},{"x":190.318,"z":-231.903},{"x":212.132,"z":-212.132},{"x":231.903,"z":-190.318},{"x":249.441,"z":-166.671},{"x":264.576,"z":-141.419},{"x":277.164,"z":-114.805},{"x":287.082,"z":-87.085},{"x":294.236,"z":-58.527},{"x":298.555,"z":-29.405}],"holes":[]}},
+    "ring_03": {"geometry_type":"polygon","geometry":{"outer":[{"x":-50,"z":-50},{"x":50,"z":-50},{"x":50,"z":50},{"x":-50,"z":50}],"holes":[]}},
+    "ring_04": {"geometry_type":"linestring","geometry":[{"x":-200,"z":-200},{"x":200,"z":-200},{"x":200,"z":200},{"x":-200,"z":200},{"x":-200,"z":-200}]},
+    "ring_05": {"geometry_type":"polygon","geometry":{"outer":[{"x":-200,"z":-200},{"x":200,"z":-200},{"x":200,"z":200},{"x":-200,"z":200}],"holes":[]}},
+    "ring_06": {"geometry_type":"polygon","geometry":{"outer":[{"x":-50,"z":-50},{"x":50,"z":-50},{"x":50,"z":50},{"x":30,"z":50},{"x":30,"z":-10},{"x":20,"z":-10},{"x":20,"z":50},{"x":-50,"z":50}],"holes":[]}},
+    "ring_07": {"geometry_type":"polygon","geometry":{"outer":[{"x":-200,"z":-200},{"x":200,"z":-200},{"x":200,"z":200},{"x":150,"z":200},{"x":150,"z":-30},{"x":120,"z":-30},{"x":120,"z":200},{"x":-200,"z":200}],"holes":[]}},
+    "ring_08": {"geometry_type":"polygon","geometry":{"outer":[{"x":-200,"z":-200},{"x":130,"z":-200},{"x":150,"z":0},{"x":170,"z":-200},{"x":200,"z":-200},{"x":200,"z":200},{"x":-200,"z":200}],"holes":[]}},
+    "ring_09": {"geometry_type":"polygon","geometry":{"outer":[{"x":-50,"z":-50},{"x":130,"z":-50},{"x":100,"z":0},{"x":50,"z":-10},{"x":50,"z":50},{"x":-50,"z":50}],"holes":[]}},
+    "ring_10": {"geometry_type":"polygon","geometry":{"outer":[{"x":-200,"z":-200},{"x":200,"z":-200},{"x":200,"z":200},{"x":170,"z":200},{"x":160,"z":0},{"x":150,"z":200},{"x":130,"z":200},{"x":130,"z":-30},{"x":100,"z":-30},{"x":100,"z":200},{"x":-200,"z":200}],"holes":[]}},
+    "ring_11": {"geometry_type":"polygon","geometry":{"outer":[{"x":-50,"z":-50},{"x":50,"z":-50},{"x":50,"z":50},{"x":30,"z":50},{"x":25,"z":0},{"x":20,"z":50},{"x":-50,"z":50}],"holes":[]}},
+    "ring_12": {"geometry_type":"polygon","geometry":{"outer":[{"x":-50,"z":-50},{"x":50,"z":-50},{"x":50,"z":50},{"x":30,"z":50},{"x":30,"z":0},{"x":20,"z":0},{"x":20,"z":50},{"x":-50,"z":50}],"holes":[]}},
+    "ring_13": {"geometry_type":"polygon","geometry":{"outer":[{"x":-200,"z":-200},{"x":200,"z":-200},{"x":200,"z":0},{"x":250,"z":0},{"x":250,"z":200},{"x":-200,"z":200}],"holes":[]}},
+    "ring_14": {"geometry_type":"polygon","geometry":{"outer":[{"x":-200,"z":-200},{"x":200,"z":-200},{"x":200,"z":0},{"x":220,"z":200},{"x":-200,"z":200}],"holes":[]}},
+    "ring_15": {"geometry_type":"polygon","geometry":{"outer":[{"x":-200,"z":-200},{"x":200,"z":-200},{"x":200,"z":0},{"x":250,"z":0},{"x":250,"z":200},{"x":130,"z":200},{"x":130,"z":-30},{"x":100,"z":-30},{"x":100,"z":200},{"x":-200,"z":200}],"holes":[]}},
+    "ring_16": {"geometry_type":"polygon","geometry":{"outer":[{"x":-60,"z":-50},{"x":50,"z":-50},{"x":50,"z":50},{"x":-50,"z":50},{"x":-50,"z":0},{"x":-60,"z":0}],"holes":[]}},
+    "ring_17": {"geometry_type":"polygon","geometry":{"outer":[{"x":-150,"z":-30},{"x":150,"z":-30},{"x":150,"z":30},{"x":-150,"z":30}],"holes":[]}},
+    "ring_18": {"geometry_type":"polygon","geometry":{"outer":[{"x":-100,"z":-200},{"x":100,"z":-200},{"x":100,"z":200},{"x":-100,"z":200}],"holes":[]}},
+    "ring_19": {"geometry_type":"polygon","geometry":{"outer":[{"x":250,"z":-50},{"x":350,"z":-50},{"x":350,"z":50},{"x":250,"z":50}],"holes":[]}},
+    "ring_20": {"geometry_type":"polygon","geometry":{"outer":[{"x":150,"z":-50},{"x":250,"z":-50},{"x":250,"z":50},{"x":150,"z":50}],"holes":[]}}
+  },
+  "cases": [
+    {
+      "id": "regular_64gon_n1_o0",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=1, offset 0: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 1,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":1,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":0,"status":"valid","warnings":[],"geometry":[{"x":100,"z":0},{"x":300,"z":0}],"length_wu":200}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n1_o22.5",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=1, offset 22.5: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 1,
+      "offset_deg": 22.5,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":1,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":22.5,"status":"valid","warnings":[],"geometry":[{"x":92.388,"z":38.268},{"x":277.164,"z":114.805}],"length_wu":200.00020636239356}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n2_o0",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=2, offset 0: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 2,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":2,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":0,"status":"valid","warnings":[],"geometry":[{"x":100,"z":0},{"x":300,"z":0}],"length_wu":200},
+        {"index":1,"angle_deg":180,"status":"valid","warnings":[],"geometry":[{"x":-100,"z":0},{"x":-300,"z":0}],"length_wu":200}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n2_o22.5",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=2, offset 22.5: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 2,
+      "offset_deg": 22.5,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":2,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":22.5,"status":"valid","warnings":[],"geometry":[{"x":92.388,"z":38.268},{"x":277.164,"z":114.805}],"length_wu":200.00020636239356},
+        {"index":1,"angle_deg":202.5,"status":"valid","warnings":[],"geometry":[{"x":-92.388,"z":-38.268},{"x":-277.164,"z":-114.805}],"length_wu":200.00020636239356}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n3_o0",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=3, offset 0: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 3,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":3,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":0,"status":"valid","warnings":[],"geometry":[{"x":100,"z":0},{"x":300,"z":0}],"length_wu":200},
+        {"index":1,"angle_deg":120,"status":"valid","warnings":[],"geometry":[{"x":-49.946,"z":86.51},{"x":-149.839,"z":259.529}],"length_wu":199.78534933773298},
+        {"index":2,"angle_deg":240,"status":"valid","warnings":[],"geometry":[{"x":-49.946,"z":-86.51},{"x":-149.839,"z":-259.529}],"length_wu":199.78534933773298}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n3_o22.5",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=3, offset 22.5: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 3,
+      "offset_deg": 22.5,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":3,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":22.5,"status":"valid","warnings":[],"geometry":[{"x":92.388,"z":38.268},{"x":277.164,"z":114.805}],"length_wu":200.00020636239356},
+        {"index":1,"angle_deg":142.5,"status":"valid","warnings":[],"geometry":[{"x":-79.25,"z":60.811},{"x":-237.751,"z":182.433}],"length_wu":199.7860803084139},
+        {"index":2,"angle_deg":262.5,"status":"valid","warnings":[],"geometry":[{"x":-13.039,"z":-99.038},{"x":-39.116,"z":-297.115}],"length_wu":199.7861553211333}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n7_o0",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=7, offset 0: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 7,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":7,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":0,"status":"valid","warnings":[],"geometry":[{"x":100,"z":0},{"x":300,"z":0}],"length_wu":200},
+        {"index":1,"angle_deg":51.42857142857143,"status":"valid","warnings":[],"geometry":[{"x":62.312,"z":78.137},{"x":186.936,"z":234.411}],"length_wu":199.8817261582459},
+        {"index":2,"angle_deg":102.85714285714286,"status":"valid","warnings":[],"geometry":[{"x":-22.23,"z":97.397},{"x":-66.691,"z":292.191}],"length_wu":199.80361097087305},
+        {"index":3,"angle_deg":154.28571428571428,"status":"valid","warnings":[],"geometry":[{"x":-89.991,"z":43.337},{"x":-269.972,"z":130.011}],"length_wu":199.76371701838147},
+        {"index":4,"angle_deg":205.71428571428572,"status":"valid","warnings":[],"geometry":[{"x":-89.991,"z":-43.337},{"x":-269.972,"z":-130.011}],"length_wu":199.76371701838147},
+        {"index":5,"angle_deg":257.14285714285717,"status":"valid","warnings":[],"geometry":[{"x":-22.23,"z":-97.397},{"x":-66.691,"z":-292.191}],"length_wu":199.80361097087305},
+        {"index":6,"angle_deg":308.57142857142856,"status":"valid","warnings":[],"geometry":[{"x":62.312,"z":-78.137},{"x":186.936,"z":-234.411}],"length_wu":199.8817261582459}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n7_o22.5",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=7, offset 22.5: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 7,
+      "offset_deg": 22.5,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":7,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":22.5,"status":"valid","warnings":[],"geometry":[{"x":92.388,"z":38.268},{"x":277.164,"z":114.805}],"length_wu":200.00020636239356},
+        {"index":1,"angle_deg":73.92857142857143,"status":"valid","warnings":[],"geometry":[{"x":27.667,"z":96.035},{"x":83.002,"z":288.105}],"length_wu":199.88208305148314},
+        {"index":2,"angle_deg":125.35714285714286,"status":"valid","warnings":[],"geometry":[{"x":-57.81,"z":81.476},{"x":-173.431,"z":244.428}],"length_wu":199.803828654508},
+        {"index":3,"angle_deg":176.78571428571428,"status":"valid","warnings":[],"geometry":[{"x":-99.725,"z":5.6},{"x":-299.174,"z":16.801}],"length_wu":199.76327490807714},
+        {"index":4,"angle_deg":228.21428571428572,"status":"valid","warnings":[],"geometry":[{"x":-66.556,"z":-74.476},{"x":-199.668,"z":-223.429}],"length_wu":199.76436307059376},
+        {"index":5,"angle_deg":279.64285714285717,"status":"valid","warnings":[],"geometry":[{"x":16.734,"z":-98.49},{"x":50.202,"z":-295.471}],"length_wu":199.80395738072858},
+        {"index":6,"angle_deg":331.07142857142856,"status":"valid","warnings":[],"geometry":[{"x":87.471,"z":-48.343},{"x":262.412,"z":-145.03}],"length_wu":199.8817886902156}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n8_o0",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=8, offset 0: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 8,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":8,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":0,"status":"valid","warnings":[],"geometry":[{"x":100,"z":0},{"x":300,"z":0}],"length_wu":200},
+        {"index":1,"angle_deg":45,"status":"valid","warnings":[],"geometry":[{"x":70.711,"z":70.711},{"x":212.132,"z":212.132}],"length_wu":199.99949620436547},
+        {"index":2,"angle_deg":90,"status":"valid","warnings":[],"geometry":[{"x":0,"z":100},{"x":0,"z":300}],"length_wu":200},
+        {"index":3,"angle_deg":135,"status":"valid","warnings":[],"geometry":[{"x":-70.711,"z":70.711},{"x":-212.132,"z":212.132}],"length_wu":199.99949620436547},
+        {"index":4,"angle_deg":180,"status":"valid","warnings":[],"geometry":[{"x":-100,"z":0},{"x":-300,"z":0}],"length_wu":200},
+        {"index":5,"angle_deg":225,"status":"valid","warnings":[],"geometry":[{"x":-70.711,"z":-70.711},{"x":-212.132,"z":-212.132}],"length_wu":199.99949620436547},
+        {"index":6,"angle_deg":270,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-100},{"x":0,"z":-300}],"length_wu":200},
+        {"index":7,"angle_deg":315,"status":"valid","warnings":[],"geometry":[{"x":70.711,"z":-70.711},{"x":212.132,"z":-212.132}],"length_wu":199.99949620436547}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n8_o22.5",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=8, offset 22.5: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 8,
+      "offset_deg": 22.5,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":8,"geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":22.5,"status":"valid","warnings":[],"geometry":[{"x":92.388,"z":38.268},{"x":277.164,"z":114.805}],"length_wu":200.00020636239356},
+        {"index":1,"angle_deg":67.5,"status":"valid","warnings":[],"geometry":[{"x":38.268,"z":92.388},{"x":114.805,"z":277.164}],"length_wu":200.00020636239356},
+        {"index":2,"angle_deg":112.5,"status":"valid","warnings":[],"geometry":[{"x":-38.268,"z":92.388},{"x":-114.805,"z":277.164}],"length_wu":200.00020636239356},
+        {"index":3,"angle_deg":157.5,"status":"valid","warnings":[],"geometry":[{"x":-92.388,"z":38.268},{"x":-277.164,"z":114.805}],"length_wu":200.00020636239356},
+        {"index":4,"angle_deg":202.5,"status":"valid","warnings":[],"geometry":[{"x":-92.388,"z":-38.268},{"x":-277.164,"z":-114.805}],"length_wu":200.00020636239356},
+        {"index":5,"angle_deg":247.5,"status":"valid","warnings":[],"geometry":[{"x":-38.268,"z":-92.388},{"x":-114.805,"z":-277.164}],"length_wu":200.00020636239356},
+        {"index":6,"angle_deg":292.5,"status":"valid","warnings":[],"geometry":[{"x":38.268,"z":-92.388},{"x":114.805,"z":-277.164}],"length_wu":200.00020636239356},
+        {"index":7,"angle_deg":337.5,"status":"valid","warnings":[],"geometry":[{"x":92.388,"z":-38.268},{"x":277.164,"z":-114.805}],"length_wu":200.00020636239356}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n360_o0",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=360, offset 0: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 360,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":360,"others_status":"valid","geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":0,"status":"valid","warnings":[],"geometry":[{"x":100,"z":0},{"x":300,"z":0}],"length_wu":200},
+        {"index":45,"angle_deg":45,"status":"valid","warnings":[],"geometry":[{"x":70.711,"z":70.711},{"x":212.132,"z":212.132}],"length_wu":199.99949620436547},
+        {"index":90,"angle_deg":90,"status":"valid","warnings":[],"geometry":[{"x":0,"z":100},{"x":0,"z":300}],"length_wu":200},
+        {"index":135,"angle_deg":135,"status":"valid","warnings":[],"geometry":[{"x":-70.711,"z":70.711},{"x":-212.132,"z":212.132}],"length_wu":199.99949620436547},
+        {"index":180,"angle_deg":180,"status":"valid","warnings":[],"geometry":[{"x":-100,"z":0},{"x":-300,"z":0}],"length_wu":200},
+        {"index":225,"angle_deg":225,"status":"valid","warnings":[],"geometry":[{"x":-70.711,"z":-70.711},{"x":-212.132,"z":-212.132}],"length_wu":199.99949620436547},
+        {"index":270,"angle_deg":270,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-100},{"x":0,"z":-300}],"length_wu":200},
+        {"index":315,"angle_deg":315,"status":"valid","warnings":[],"geometry":[{"x":70.711,"z":-70.711},{"x":212.132,"z":-212.132}],"length_wu":199.99949620436547},
+        {"index":359,"angle_deg":359,"status":"valid","warnings":[],"geometry":[{"x":99.914,"z":-1.744},{"x":299.743,"z":-5.232}],"length_wu":199.85943906906178}
+      ]}
+    },
+    {
+      "id": "regular_64gon_n360_o22.5",
+      "group": 1,
+      "description": "Regular 64-gon rings (inner r=100, outer r=300), N=360, offset 22.5: every spoke valid.",
+      "inner": "ring_01",
+      "outer": "ring_02",
+      "center": {"x":0,"z":0},
+      "count": 360,
+      "offset_deg": 22.5,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":360,"others_status":"valid","geometry_tolerance_wu":0.001, "spokes": [
+        {"index":0,"angle_deg":22.5,"status":"valid","warnings":[],"geometry":[{"x":92.388,"z":38.268},{"x":277.164,"z":114.805}],"length_wu":200.00020636239356},
+        {"index":45,"angle_deg":67.5,"status":"valid","warnings":[],"geometry":[{"x":38.268,"z":92.388},{"x":114.805,"z":277.164}],"length_wu":200.00020636239356},
+        {"index":90,"angle_deg":112.5,"status":"valid","warnings":[],"geometry":[{"x":-38.268,"z":92.388},{"x":-114.805,"z":277.164}],"length_wu":200.00020636239356},
+        {"index":135,"angle_deg":157.5,"status":"valid","warnings":[],"geometry":[{"x":-92.388,"z":38.268},{"x":-277.164,"z":114.805}],"length_wu":200.00020636239356},
+        {"index":180,"angle_deg":202.5,"status":"valid","warnings":[],"geometry":[{"x":-92.388,"z":-38.268},{"x":-277.164,"z":-114.805}],"length_wu":200.00020636239356},
+        {"index":225,"angle_deg":247.5,"status":"valid","warnings":[],"geometry":[{"x":-38.268,"z":-92.388},{"x":-114.805,"z":-277.164}],"length_wu":200.00020636239356},
+        {"index":270,"angle_deg":292.5,"status":"valid","warnings":[],"geometry":[{"x":38.268,"z":-92.388},{"x":114.805,"z":-277.164}],"length_wu":200.00020636239356},
+        {"index":315,"angle_deg":337.5,"status":"valid","warnings":[],"geometry":[{"x":92.388,"z":-38.268},{"x":277.164,"z":-114.805}],"length_wu":200.00020636239356},
+        {"index":359,"angle_deg":21.5,"status":"valid","warnings":[],"geometry":[{"x":92.976,"z":36.624},{"x":278.929,"z":109.873}],"length_wu":199.85978637534862}
+      ]}
+    },
+    {
+      "id": "squares_axis",
+      "group": 2,
+      "description": "Squares (inner half 50, outer half 200 as a closed linestring): exact axis endpoints.",
+      "inner": "ring_03",
+      "outer": "ring_04",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":[],"geometry":[{"x":50,"z":0},{"x":200,"z":0}]},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "squares_corners",
+      "group": 2,
+      "description": "45° rays pass exactly through the square corners: vertex crossings at the stored coordinates.",
+      "inner": "ring_03",
+      "outer": "ring_05",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 45,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":[],"geometry":[{"x":50,"z":50},{"x":200,"z":200}]},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":50},{"x":-200,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":-50},{"x":-200,"z":-200}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":50,"z":-50},{"x":200,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "concave_inner",
+      "group": 3,
+      "description": "A slot crosses the +X ray inside the inner ring: start at the outermost exit, with inner_multiple_crossings.",
+      "inner": "ring_06",
+      "outer": "ring_05",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":["inner_multiple_crossings"],"geometry":[{"x":50,"z":0},{"x":200,"z":0}],"crossings":3},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "concave_outer",
+      "group": 4,
+      "description": "A bay: the +X ray leaves the outer ring, re-enters and leaves again. End at the first exit, with outer_multiple_crossings.",
+      "inner": "ring_03",
+      "outer": "ring_07",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":["outer_multiple_crossings"],"geometry":[{"x":50,"z":0},{"x":120,"z":0}],"crossings":3},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "grazes_outer",
+      "group": 5,
+      "description": "An inward outer vertex touches the +X ray before the exit: grazes_outer.",
+      "inner": "ring_03",
+      "outer": "ring_08",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[], "spokes": [
+        {"index":0,"status":"invalid","warnings":[],"error":{"code":"grazes_outer","ring":"outer","point":{"x":150,"z":0}}},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "grazes_inner",
+      "group": 5,
+      "description": "An inner lobe touches the +X ray from outside, beyond the inner exit: grazes_inner.",
+      "inner": "ring_09",
+      "outer": "ring_05",
+      "center": {"x":0,"z":0},
+      "count": 2,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[], "spokes": [
+        {"index":0,"status":"invalid","warnings":[],"error":{"code":"grazes_inner","ring":"inner","point":{"x":100,"z":0}}},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]}
+      ]}
+    },
+    {
+      "id": "touch_beyond_end",
+      "group": 5,
+      "description": "An outer vertex touches the ray beyond the spoke end (after the first exit): ignored.",
+      "inner": "ring_03",
+      "outer": "ring_10",
+      "center": {"x":0,"z":0},
+      "count": 1,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":["outer_multiple_crossings"],"geometry":[{"x":50,"z":0},{"x":100,"z":0}],"crossings":3}
+      ]}
+    },
+    {
+      "id": "single_vertex_touch_before_start",
+      "group": 6,
+      "description": "Companion to collinear_inner_before_start: a single on-ray inner vertex at the same position is a touch (before the start, so ignored), not an overlap.",
+      "inner": "ring_11",
+      "outer": "ring_05",
+      "center": {"x":0,"z":0},
+      "count": 1,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":[],"geometry":[{"x":50,"z":0},{"x":200,"z":0}]}
+      ]}
+    },
+    {
+      "id": "collinear_inner_before_start",
+      "group": 6,
+      "description": "The +X ray runs along an inner edge (x 20..30) before the would-be start (x 50): collinear_overlap for that spoke only.",
+      "inner": "ring_12",
+      "outer": "ring_05",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[], "spokes": [
+        {"index":0,"status":"invalid","warnings":[],"error":{"code":"collinear_overlap","ring":"inner","t_range":[20,30],"from":{"x":20,"z":0},"to":{"x":30,"z":0}}},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "collinear_outer_at_end",
+      "group": 6,
+      "description": "The +X ray runs along an outer edge (x 200..250) where the end would be: collinear_overlap.",
+      "inner": "ring_03",
+      "outer": "ring_13",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[], "spokes": [
+        {"index":0,"status":"invalid","warnings":[],"error":{"code":"collinear_overlap","ring":"outer","t_range":[200,250],"from":{"x":200,"z":0},"to":{"x":250,"z":0}}},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "single_vertex_crossing_at_end",
+      "group": 6,
+      "description": "Companion to collinear_outer_at_end: a single on-ray outer vertex at the same position with neighbours on opposite sides is a crossing at its exact coordinates.",
+      "inner": "ring_03",
+      "outer": "ring_14",
+      "center": {"x":0,"z":0},
+      "count": 1,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":[],"geometry":[{"x":50,"z":0},{"x":200,"z":0}]}
+      ]}
+    },
+    {
+      "id": "collinear_outer_beyond_end",
+      "group": 6,
+      "description": "The ray leaves the outer ring at x 100, re-enters at 130, then runs along an outer edge (x 200..250) beyond the would-be end: still collinear_overlap.",
+      "inner": "ring_03",
+      "outer": "ring_15",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[], "spokes": [
+        {"index":0,"status":"invalid","warnings":[],"error":{"code":"collinear_overlap","ring":"outer","t_range":[200,250],"from":{"x":200,"z":0},"to":{"x":250,"z":0}}},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "collinear_behind_center",
+      "group": 6,
+      "description": "An inner edge on the ray line behind the center (x -60..-50) is ignored for spoke 0, and is a forward overlap for spoke 2 (180°).",
+      "inner": "ring_16",
+      "outer": "ring_05",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":[],"geometry":[{"x":50,"z":0},{"x":200,"z":0}]},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"invalid","warnings":[],"error":{"code":"collinear_overlap","ring":"inner","t_range":[50,60],"from":{"x":-50,"z":0},"to":{"x":-60,"z":0}}},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "collinear_omitted",
+      "group": 6,
+      "description": "The same overlap, explicitly omitted: construction is ok, and the omitted spoke still reports why.",
+      "inner": "ring_12",
+      "outer": "ring_05",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [0],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"omitted","warnings":[],"error":{"code":"collinear_overlap","ring":"inner","t_range":[20,30],"from":{"x":20,"z":0},"to":{"x":30,"z":0}}},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":50},{"x":0,"z":200}]},
+        {"index":2,"status":"valid","warnings":[],"geometry":[{"x":-50,"z":0},{"x":-200,"z":0}]},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-50},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "crossing_rings",
+      "group": 7,
+      "description": "Rings cross: invalid_radial_order along ±X only; ±Z valid.",
+      "inner": "ring_17",
+      "outer": "ring_18",
+      "center": {"x":0,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[], "spokes": [
+        {"index":0,"status":"invalid","warnings":[],"error":{"code":"invalid_radial_order","ring":"outer"}},
+        {"index":1,"status":"valid","warnings":[],"geometry":[{"x":0,"z":30},{"x":0,"z":200}]},
+        {"index":2,"status":"invalid","warnings":[],"error":{"code":"invalid_radial_order","ring":"outer"}},
+        {"index":3,"status":"valid","warnings":[],"geometry":[{"x":0,"z":-30},{"x":0,"z":-200}]}
+      ]}
+    },
+    {
+      "id": "center_outside_inner",
+      "group": 8,
+      "description": "Center outside the inner ring.",
+      "inner": "ring_03",
+      "outer": "ring_05",
+      "center": {"x":60,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[{"code":"center_not_inside","ring":"inner","where":"outside"}], "spokes": [
+      ]}
+    },
+    {
+      "id": "center_on_inner",
+      "group": 8,
+      "description": "Center on the inner ring.",
+      "inner": "ring_03",
+      "outer": "ring_05",
+      "center": {"x":50,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[{"code":"center_not_inside","ring":"inner","where":"boundary"}], "spokes": [
+      ]}
+    },
+    {
+      "id": "center_outside_outer",
+      "group": 8,
+      "description": "Center inside the inner ring but outside the outer.",
+      "inner": "ring_19",
+      "outer": "ring_05",
+      "center": {"x":300,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[{"code":"center_not_inside","ring":"outer","where":"outside"}], "spokes": [
+      ]}
+    },
+    {
+      "id": "center_on_outer",
+      "group": 8,
+      "description": "Center on the outer ring.",
+      "inner": "ring_20",
+      "outer": "ring_05",
+      "center": {"x":200,"z":0},
+      "count": 4,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":false,"errors":[{"code":"center_not_inside","ring":"outer","where":"boundary"}], "spokes": [
+      ]}
+    },
+    {
+      "id": "inline_circles_both",
+      "group": 11,
+      "description": "Inner: three-point circle through (100,0),(0,100),(-100,0) (r=100). Outer: centre+rim circle r=300. The +X ray meets both circles at their vertex 0.",
+      "inner": {"circle":{"method":"three_point","points":[{"x":100,"z":0},{"x":0,"z":100},{"x":-100,"z":0}]}},
+      "outer": {"circle":{"method":"center_radius","points":[{"x":0,"z":0},{"x":300,"z":0}]}},
+      "center": {"x":0,"z":0},
+      "count": 1,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":[],"geometry":[{"x":100,"z":0},{"x":300,"z":0}]}
+      ]}
+    },
+    {
+      "id": "inline_circle_outer_canonical_inner",
+      "group": 11,
+      "description": "Inner: an ordinary ring (square half 50). Outer: centre+rim circle r=300. Mixed sources; every spoke valid.",
+      "inner": "ring_03",
+      "outer": {"circle":{"method":"center_radius","points":[{"x":0,"z":0},{"x":300,"z":0}]}},
+      "center": {"x":0,"z":0},
+      "count": 8,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[],"spoke_count":8,"others_status":"valid", "spokes": [
+        {"index":0,"status":"valid","warnings":[],"geometry":[{"x":50,"z":0},{"x":300,"z":0}]}
+      ]}
+    },
+    {
+      "id": "inline_circle_sub_grid_clicks",
+      "group": 11,
+      "description": "Clicks with sub-grid noise are put on the 0.001 grid first, exactly as tracing does: same circle as the clean three-point definition.",
+      "inner": {"circle":{"method":"three_point","points":[{"x":100.0004,"z":0.0003},{"x":-0.0002,"z":99.9996},{"x":-100.0001,"z":0}]}},
+      "outer": {"circle":{"method":"center_radius","points":[{"x":0,"z":0},{"x":300,"z":0}]}},
+      "center": {"x":0,"z":0},
+      "count": 1,
+      "offset_deg": 0,
+      "omit_indices": [],
+      "expect": {"ok":true,"errors":[], "spokes": [
+        {"index":0,"status":"valid","warnings":[],"geometry":[{"x":100,"z":0},{"x":300,"z":0}]}
+      ]}
+    }
+  ],
+  "circles": [
+    {"id":"three_point_r100","method":"three_point","points":[{"x":100,"z":0},{"x":0,"z":100},{"x":-100,"z":0}],"expect":{"center":{"x":0,"z":0},"radius":100,"segments":55}},
+    {"id":"center_radius_r50","method":"center_radius","points":[{"x":0,"z":0},{"x":30,"z":40}],"expect":{"center":{"x":0,"z":0},"radius":50,"segments":39}},
+    {"id":"three_point_offset","method":"three_point","points":[{"x":60,"z":-20},{"x":50,"z":-10},{"x":40,"z":-20}],"expect":{"center":{"x":50,"z":-20},"radius":10,"segments":18}},
+    {"id":"three_point_sub_grid","method":"three_point","points":[{"x":100.0004,"z":0.0003},{"x":-0.0002,"z":99.9996},{"x":-100.0001,"z":0}],"expect":{"center":{"x":0,"z":0},"radius":100,"segments":55}},
+    {"id":"three_point_collinear","method":"three_point","points":[{"x":0,"z":0},{"x":10,"z":10},{"x":20,"z":20}],"expect":null},
+    {"id":"three_point_coincident","method":"three_point","points":[{"x":5,"z":5},{"x":5,"z":5},{"x":5,"z":5}],"expect":null},
+    {"id":"center_radius_zero","method":"center_radius","points":[{"x":3,"z":4},{"x":3,"z":4}],"expect":null},
+    {"id":"center_radius_sub_grid_zero","method":"center_radius","points":[{"x":3,"z":4},{"x":3.0004,"z":4.0004}],"expect":null}
+  ],
+  "parameters": {"offsets":[["-30",330],["720.5",0.5],["-0",0],["1e-7",0],["359.9999999",0],["22.5",22.5],["360",0],["-360.25",359.75]],"rejected":[{"count":0,"offset_deg":0},{"count":361,"offset_deg":0},{"count":2.5,"offset_deg":0},{"count":-1,"offset_deg":0},{"count":"4","offset_deg":0},{"count":4,"offset_deg":"NaN"},{"count":4,"offset_deg":"Infinity"},{"count":4,"offset_deg":"-Infinity"},{"count":4,"offset_deg":"10"},{"count":4,"offset_deg":0,"omit_indices":[4]},{"count":4,"offset_deg":0,"omit_indices":[-1]},{"count":4,"offset_deg":0,"omit_indices":[0,1,2,3]},{"count":4,"offset_deg":0,"omit_indices":[2,1]},{"count":4,"offset_deg":0,"omit_indices":[1,1]},{"count":4,"offset_deg":0,"omit_indices":[1.5]},{"count":1,"offset_deg":0,"omit_indices":[0]}],"accepted":[{"count":1,"offset_deg":0},{"count":360,"offset_deg":-0.5},{"count":4,"offset_deg":0,"omit_indices":[0,3]}]}
+}

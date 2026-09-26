@@ -6,7 +6,7 @@
 
 **Post-WP6 amendment.** WP6 human use established that districts are drawn spatial regions independent of physical islands, that island groups are optional semantic scopes rather than a generation tier, and that future generation runs through demand-created generation worksets/batches. These are recorded authoritatively in `docs/REQUIREMENTS.md` (R-011, R-013, R-014, R-025, R-026, R-031) and `docs/ARCHITECTURE.md` (A-017–A-020, §8, §9). This plan is reconciled with them in §3.5, §6, §9, and §13. The WP1–WP6 schema and behavior are unchanged, and WP7 scope is unchanged.
 
-**Pre-WP7 authoring-tools slice.** §15 adds a small inserted slice, **AT1 — deterministic radial construction**, which executes R-014 / A-020 between WP6 and WP7. It does not renumber, re-scope, or depend on WP7. §15 is planned and awaiting human review before implementation.
+**Pre-WP7 authoring-tools slice.** §15 adds a small inserted slice, **AT1 — deterministic radial construction**, which executes R-014 / A-020 between WP6 and WP7. It does not renumber, re-scope, or depend on WP7. AT1 is **complete and accepted**: implemented, automatically validated, human-accepted live against the real Imperial City canon, and passed a bounded final review (`SAFE TO ACCEPT AND COMMIT`). Its closeout commit is pending (`docs/PROJECT_STATUS.md`).
 
 ## 1. Goal and completion criteria
 
@@ -627,6 +627,8 @@ The generic radial/spoke constructor (R-014, A-020), specified in full in §15: 
 
 **Gate:** §15.14 tests; both full suites and the build; human acceptance §15.15.
 
+**Status:** complete and accepted (§15).
+
 ### WP7 — Import/export, legacy promotion, final verification
 
 Interchange import (world and source-pixel modes, dry run), legacy-water promotion, export, and the Bible-derived register document (`docs/canonical/initial_register.v1.json`, submitted for human review of its derivation before import). Full regression suites, build, and the complete human acceptance list (§11).
@@ -680,13 +682,13 @@ Per the Bible's escalation rule, a *specific* hard-anchor placement that turns o
 
 ## 15. Pre-WP7 slice AT1 — deterministic radial construction
 
-**Status:** Planned, pending human review. This is the next implementation step before WP7 (`docs/PROJECT_STATUS.md`).
+**Status:** Complete and accepted — implemented, automatically validated, human-accepted live against the real Imperial City canon, and passed a bounded final review (`SAFE TO ACCEPT AND COMMIT`). Human acceptance led to three amendments recorded in place below (inline constructed-circle boundaries, optional materialization of a constructed boundary as an ordinary canonical draft, and an independent `width_wu` for a materialized route boundary, §15.3.1, §15.3.4, §15.7–§15.11). This section is the durable specification of the implemented capability. Closeout commit pending; WP7 is next (`docs/PROJECT_STATUS.md`).
 **Governing:** R-006, R-014; A-015, A-020; this plan §3.1, §3.2, §3.7, §4.1, §7.2, §8.1, §8.2.
 **Position:** Inserted between WP6 and WP7 on `feature/canonical-geography`. WP7 keeps its number, scope, and gate. AT1 needs nothing from WP7, and WP7 needs nothing from AT1 except the interface note in §15.8.
 
 ### 15.1 Goal
 
-An authorized world editor can construct exact radial spokes: straight line features cast from a center at `θₙ = θ₀ + n · (360° / N)` and running between two accepted closed boundaries. The editor previews them, then persists them as ordinary **draft** canonical features that go through the normal revise/accept/lock/retire lifecycle.
+An authorized world editor can construct exact radial spokes: straight line features cast from a center at `θₙ = θ₀ + n · (360° / N)` and running between two closed boundaries — each an accepted canonical boundary or a circle constructed inline (§15.3.1). The editor previews them, then persists them as ordinary **draft** canonical features that go through the normal revise/accept/lock/retire lifecycle.
 
 This is deterministic canonical-geometry authoring (A-020). It is not procedural generation, it involves no AI, and it creates nothing but draft line geometry.
 
@@ -703,6 +705,15 @@ This is deterministic canonical-geometry authoring (A-020). It is not procedural
 No new entity type or table is added. All inputs are existing `canonical_features` rows or explicit parameters.
 
 #### 15.3.1 Boundaries (inner and outer)
+
+*Amended after AT1 human acceptance.* Each boundary independently takes one of two sources:
+
+1. **Existing canonical boundary** — an accepted feature pinned at its revision, under the rules in the table below.
+2. **Inline constructed circle** — a circle built inside the radial workflow with the existing canonical shape creator's circle methods (`three_point`: three rim clicks; `center_radius`: the centre, then a rim click), with the same semantics: each click on the 0.001-wu grid, then the shape creator's circle constructor and chord-error segmentation (§4.1). It is a deterministic **construction input, not a canonical feature**: nothing is created or accepted for it, and it never becomes canon because spokes were built against it.
+
+The rule is that **persisted construction inputs are deterministic and reconstructable**, not that every boundary is already canon. A canonical boundary is reconstructable from its pinned id and revision. An inline circle is reconstructable from its definition (method + grid-rounded clicks), which the request carries and the construction record stores (§15.8). The server recomputes the circle from that definition with a mirror of the shape creator's circle helpers, and refuses client-supplied centre, radius or ring, and degenerate definitions (collinear/coincident clicks, zero radius, a ring that fails polygon validation), with 400.
+
+**Optional materialization (amended after AT1 human acceptance).** A constructed circle stays construction input only unless the editor explicitly asks, per boundary, to also create it as an **ordinary canonical feature draft** (`materialize: {feature_class, kind?, constraint_strength?, name?, width_wu?}` on that boundary source; existing vocabularies). A materialized `route` boundary may carry its own optional `width_wu`, stored as the ordinary route attribute (full width in world units, validated like any route); other classes refuse it. Boundary width and spoke width (§15.3.4) are independent — neither is derived from the other. The draft is the exact server-resolved circle with the shape creator's own `circle` construction record, stored as the shape creator stores a circle — a `polygon` — or, for class `route`, as a closed `linestring` ring (the §4.4 wall form); it goes through the ordinary feature validation and is `draft`/`authored`, never accepted by construction. It is created in the **same transaction** as the spoke drafts; any failure (invalid boundary semantics, a construction or spoke error) writes nothing. The materialized draft is **independent**: the spokes depend only on the stored circle definition, so editing, retiring or deleting that draft never changes their geometry or record, and it is accepted (or not) on its own. An existing canonical boundary is never materialized (a `materialize` on a feature source is 400). The table below applies to canonical boundaries.
 
 | Rule | Decision |
 | --- | --- |
@@ -737,7 +748,7 @@ The center must be **strictly inside** both boundary rings. This is decided exac
 - `feature_class`: `route` (the default) or `site`, the classes that allow `linestring`.
 - `kind`: optional, from the existing vocabulary for the chosen class (for example `route` → `wall`). There is no default kind.
 - `constraint_strength`: `hard` or `soft`. It defaults to `hard`, matching the existing draft form (`featureEditing.ts`).
-- `width_wu`: optional, `route` only, and shared by every spoke.
+- `width_wu`: optional, `route` only, and shared by every spoke. It applies to the spokes only; the UI labels this block SPOKE OUTPUT, and a materialized boundary has its own width (§15.3.1).
 - `name_prefix`: optional, defaulting to `Spoke`. Each spoke is named `<prefix> #<index>` with the 0-based construction index, so names match `construction.index` and the preview table.
 - There are no anchor/part, attribute, or evidence fields. `evidence_json` is null, because the derivation is recorded in `construction_json`. Anchor linkage can be added per draft afterwards through the existing inspector.
 
@@ -824,7 +835,7 @@ Preview never writes. Closing the tool discards preview state. Nothing reaches t
 - **One `canonical_features` row per spoke:** `geometry_type = 'linestring'`, exactly two vertices, and the class/kind/strength/width/name from §15.3.4.
 - Governance: `lifecycle_state = 'draft'`, `provenance = 'authored'` (an editor using a deterministic aid, like the §4.1 constructors), `replacement_state = 'non_replaceable'`, and `is_locked = 0`. These are the same defaults as `POST /:entity`.
 - There is **no grouping entity, table, or relationship.** Spokes are independent features with independent lifecycle and revision. The `construction_id` in each record (§15.8) is informational only. It lets the UI list siblings and pre-fill reconstruction. It is never a foreign key, a query input, or a generator input, and it confers no joint lifecycle.
-- It does **not** create closed district polygons, scopes, scope boundaries, memberships, anchors, or connections.
+- It does **not** create closed district polygons, scopes, scope boundaries, memberships, anchors, or connections. The only other feature it may create is an explicitly requested materialized boundary draft (§15.3.1).
 
 ### 15.8 Construction metadata (`construction_json`)
 
@@ -838,8 +849,9 @@ Each spoke stores a `radial_spoke` construction record:
   center: {x, z},
   center_source: { kind: 'coordinate' }
                | { kind: 'feature_point' | 'feature_construction_center', feature_id, revision },
-  inner: { feature_id, revision },
-  outer: { feature_id, revision },
+  inner: { feature_id, revision }
+       | { circle: { method, points, center, radius, segments, max_chord_error_m } },
+  outer: …same shape as inner…,
   count: N,
   offset_deg: <normalized θ₀>,
   omit_indices: [...],
@@ -851,6 +863,7 @@ Each spoke stores a `radial_spoke` construction record:
 
 Rules:
 
+- An inline circle is stored as its definition (`method`, grid-rounded `points`) plus the centre, radius and segment count that definition reproduces, which are recorded for reading and must match it exactly. It carries no revision, so it has no stale-inputs notice. When that request materialized the circle, the boundary entry also records `materialized_feature_id` — the draft *this* request created, for audit and display only; it is never an input and is not checked or updated afterwards.
 - **Geometry remains authoritative** (§3.2). The record explains how the geometry was derived and pre-fills reconstruction. It is never re-evaluated automatically. The query bundle, generators, and the digest never read it. The digest changes only through the normal `revision` bump, since `construction_json` is already a constraint column.
 - **Only the constructor writes `radial_spoke` records.** The backend `checkConstruction` (`entities.js`) gains the `radial_spoke` shape with strict keys. `POST /:entity` and `POST /proposals` reject a client-supplied `radial_spoke` construction with 400. `PATCH` on a draft or proposal accepts a `radial_spoke` record only when both the record and the geometry equal the stored values. A PATCH that changes geometry while keeping the record is rejected with 400 ("clear the construction record when editing constructed geometry"). `revise` and draft-from-history copy the record together with its geometry, so they stay consistent.
 - **The frontend clears, never adapts, the record.** Vertex edits already clear `construction` in `tracing.ts`. `translateConstruction` must return `null` for `radial_spoke` rather than shifting `center`, because the record would otherwise misdescribe its inputs.
@@ -883,6 +896,8 @@ Nothing is ever rewritten automatically. Every path ends in drafts and explicit 
   - an accepted sibling is missing from `revises`. Accepting each revision keeps its id and bumps its revision (§3.7), so planner references survive.
 - **New-drafts mode.** This is always available. It creates independent new drafts with a new `construction_id`. The old spokes stay exactly as they are. The review list names the old accepted spokes and says they remain canonical until the editor retires them explicitly through the existing per-record retire action. Nothing is retired automatically.
 
+**Reconstruction and materialized boundaries.** Reconstruct restores an inline circle's definition but never its materialization: the option starts off, so no duplicate boundary draft is created unless the editor explicitly asks again (which creates one new, separate draft). A previously materialized boundary — draft or accepted — is never revised, replaced or retired by reconstruction; it changes only through its own ordinary lifecycle.
+
 Draft spokes from an earlier construction are simply edited or deleted, since drafts are hard-deletable (§3.7). The review list offers **Discard drafts of this construction**. It issues existing per-record `DELETE` calls for drafts only after a count confirmation, and never touches accepted rows.
 
 ### 15.10 Authorization, protection, and lifecycle
@@ -905,9 +920,9 @@ Draft spokes from an earlier construction are simply edited or deleted, since dr
 | `backend/canonicalGeography/store.js` | `constructRadial(body)`: one `BEGIN IMMEDIATE` transaction that loads inputs, checks eligibility and pinned revisions, computes, and then either inserts N drafts or, in revision mode, uses the existing `refuseOpenRevision` / `insertRevision` path per target. It is all-or-nothing. A patch-path guard enforces the `radial_spoke` invariant. |
 | `backend/routes/canonical_geography.js` | `POST /constructions/radial`, registered **before** `/:entity` (like `/proposals` and `/query`). It uses the `mutation` wrapper (one `emitUpdate`) for real writes. `dry_run: true` returns the report with 200 and emits nothing. Status codes: 400 for malformed parameters, 404 for a missing input, 409 for ineligible, stale, per-spoke-invalid, locked, or mismatched requests, and 201 on success. |
 
-**Request:** `{ inner: {feature_id, expected_revision}, outer: {…}, center? , center_source?, count, offset_deg, omit_indices?, output?, revises?, dry_run? }`. `output` is required in new-drafts mode and forbidden in revision mode. In revision mode, `count` and `omit_indices` must equal the recorded values (§15.9).
+**Request:** `{ inner: {feature_id, expected_revision} | {circle: {method, points}, materialize?}, outer: {…}, center? , center_source?, count, offset_deg, omit_indices?, output?, revises?, dry_run? }`. `output` is required in new-drafts mode and forbidden in revision mode. In revision mode, `count` and `omit_indices` must equal the recorded values (§15.9).
 
-**Report:** `{ ok, normalized: {center, count, offset_deg, omit_indices}, errors: [construction-level], spokes: [{index, angle_deg, status: 'valid'|'invalid'|'omitted', geometry?, length_wu, length_m, warnings[], error?}] }`. On 201 it also returns `construction_id` and the created or revised feature records.
+**Report:** `{ ok, normalized: {center, count, offset_deg, omit_indices}, errors: [construction-level], spokes: [{index, angle_deg, status: 'valid'|'invalid'|'omitted', geometry?, length_wu, length_m, warnings[], error?}] }`. On 201 it also returns `construction_id` and the created or revised spoke records, and `boundary_features: [{role, feature}]` for any materialized boundary drafts (a dry run lists them as `boundary_drafts`).
 
 **Frontend** (`frontend/src/modules/canonicalGeography/`)
 
@@ -960,6 +975,7 @@ It contains only what §15.6 lists. It explicitly excludes:
 8. Center outside inner, on inner, outside outer, and on outer: `center_not_inside`.
 9. Offset normalization: −30 → 330, 720.5 → 0.5, −0 → 0, 1e−7 → 0, 359.9999999 → 0. NaN, ±Infinity, and non-integer or out-of-range `N` are rejected. Omission out of range or all omitted is rejected.
 10. Determinism and rotation: identical results on repeated runs. `θ₀ + 360/N` yields the same set of line geometries with indices shifted by one. Changing `θ₀` changes every spoke deterministically.
+11. Inline circle boundaries (§15.3.1): circle definitions reproduce the shape creator's centre, radius and segments (including sub-grid clicks and degenerate cases); radial cases with two inline circles, and with one canonical and one inline boundary; client and server circles byte-identical.
 
 **Backend** (Vitest + Supertest):
 
@@ -1002,9 +1018,9 @@ It contains only what §15.6 lists. It explicitly excludes:
 
 The real world data validates the generic mechanism. Nothing here is encoded in code.
 
-**Preconditions.** The Imperial City reference layer is visible. The intended inner and outer ring features are traced (with the §4.1 circle constructor where the evidence is circular) and **accepted**. Record their ids and revisions.
+**Preconditions.** The Imperial City reference layer is visible. An irregular boundary used as input is traced and **accepted** (record its id and revision). A circular boundary may instead be constructed inline in the radial workflow with the shape creator's circle methods (§15.3.1), without first creating or accepting a circle feature.
 
-1. **Select inputs.** Open RADIAL CONSTRUCT, then pick the inner and outer rings on the map. Both show as eligible accepted features with their revisions. A draft feature is not offered.
+1. **Select inputs.** Open RADIAL CONSTRUCT, then pick the inner and outer rings on the map, or construct either as an inline circle (for example the three-point circle on the raster wall). Picked features show as eligible accepted features with their revisions; a draft feature is not offered. An inline circle is drawn as a construction input and creates no feature.
 2. **Center.** Use "center of" the inner ring's circle construction, or place the center by click or entry. Both rings report the center inside.
 3. **Exact divisions.** Set `N` to the number of radial divisions visible in the raster. Use Aim spoke 0 on one raster radial wall, then fine-tune `θ₀`. Every preview spoke lies over its raster radial wall, and zooming in shows each endpoint on the inner and outer rings.
 4. **Deterministic offset.** Change `θ₀` by +5°: every spoke rotates by 5°. Revert: the preview is identical to before. Set `θ₀ + 360/N`: the same lines appear with the indices shifted.
@@ -1039,3 +1055,5 @@ AT1 is complete when all of the following hold:
 - a review finds no world-specific identifiers in code or tests, and no path by which construction writes non-draft state or modifies an input.
 
 Then stop for human acceptance and commit authorization. WP7 follows unchanged.
+
+**Met.** Every condition above holds (see the §15 status line and `docs/PROJECT_STATUS.md`).

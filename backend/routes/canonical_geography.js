@@ -4,8 +4,8 @@ const { createStore } = require('../canonicalGeography/store');
 const { CanonicalError } = require('../canonicalGeography/errors');
 
 /**
- * Canonical geography: lifecycle and protection (plan §5.1–§5.2, WP2), and the
- * generator-facing query (plan §5.3, WP3).
+ * Canonical geography: lifecycle and protection (plan §5.1–§5.2, WP2), the
+ * generator-facing query (plan §5.3, WP3), and deterministic radial construction (plan §15).
  *
  * The rules live in `canonicalGeography/store.js`; this file is authorization, HTTP shape
  * and the realtime nudge. Accepted canon is a public read, like the rest of the shared
@@ -59,6 +59,20 @@ module.exports = (db, io, { emitUpdate }) => {
   // ── software proposals (before /:entity so "proposals" is never read as an entity) ──
 
   router.post('/proposals', ...editor, mutation(201, (req) => store.createProposal(req.body)));
+
+  // ── radial construction (before /:entity so "constructions" is never read as an entity) ──
+
+  // Plan §15: drafts only, one transaction, one emit. `dry_run` runs the same checks and
+  // answers the report with 200 without writing or emitting. World editor only, dry run
+  // included: it reads draft-state eligibility and is part of the authoring tool.
+  router.post('/constructions/radial', ...editor, async (req, res) => {
+    try {
+      const result = await store.constructRadial(req.body);
+      if (result.dry_run) return res.status(200).json(result);
+      emitUpdate({ canonicalGeography: true });
+      res.status(201).json(result);
+    } catch (err) { fail(res, err); }
+  });
 
   // ── generator-facing query (before /:entity so "query" is never read as an entity) ──
 

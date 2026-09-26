@@ -15,6 +15,7 @@
 
 const { validateGeometry, isGeometryTypeAllowedForClass, WORLD_LIMIT } = require('./geometry');
 const { invalid } = require('./errors');
+const circles = require('./circleConstruction');
 
 // Vocabularies mirror the CHECK constraints in migrations/002-canonical-geography.js, so a
 // caller gets a useful 400 rather than a bare SQL constraint failure.
@@ -151,10 +152,91 @@ const checkEvidence = (ev) => {
   if (present(ev.note)) text(ev.note, 'evidence.note', { max: TEXT_MAX });
 };
 
-const CONSTRUCTION_TYPES = ['circle', 'ellipse', 'rect'];
+const CONSTRUCTION_TYPES = ['circle', 'ellipse', 'rect', 'radial_spoke'];
+
+const RADIAL_SPOKE_KEYS = ['type', 'version', 'construction_id', 'center', 'center_source', 'inner', 'outer', 'count',
+  'offset_deg', 'omit_indices', 'index', 'angle_deg', 'angle_convention'];
+const RADIAL_CENTER_SOURCES = ['coordinate', 'feature_point', 'feature_construction_center'];
+
+/** `{feature_id, revision}` naming an accepted input at the revision the spoke was built from. */
+function checkInputRef(ref, field) {
+  if (!isPlainObject(ref)) throw invalid(`${field} must be {feature_id, revision}`);
+  onlyKeys(ref, ['feature_id', 'revision'], field);
+  id(ref.feature_id, `${field}.feature_id`);
+  if (!Number.isInteger(ref.feature_id)) throw invalid(`${field}.feature_id is required`);
+  if (!Number.isInteger(ref.revision) || ref.revision < 1) throw invalid(`${field}.revision must be a positive integer`);
+}
+
+/**
+ * A recorded radial boundary: `{feature_id, revision}`, or `{circle}` — an inline circle
+ * definition (method + grid-rounded points) with its derived centre, radius and segments,
+ * which must be exactly what the definition reproduces.
+ */
+function checkBoundaryRef(ref, field) {
+  if (!isPlainObject(ref) || !Object.prototype.hasOwnProperty.call(ref, 'circle')) return checkInputRef(ref, field);
+  onlyKeys(ref, ['circle', 'materialized_feature_id'], field);
+  // Informational: the boundary draft the originating request created. Never an input.
+  if (present(ref.materialized_feature_id)) id(ref.materialized_feature_id, `${field}.materialized_feature_id`);
+  const c = ref.circle;
+  if (!isPlainObject(c)) throw invalid(`${field}.circle must be an object`);
+  onlyKeys(c, ['method', 'points', 'center', 'radius', 'segments', 'max_chord_error_m'], `${field}.circle`);
+  const built = Array.isArray(c.points) && c.points.every(p => isPlainObject(p) && finiteNumber(p.x) && finiteNumber(p.z))
+    ? circles.circleFromDefinition(c.method, c.points) : null;
+  if (!built) throw invalid(`${field}.circle is not a valid circle definition`);
+  const d = built.construction;
+  const same = c.points.every(p => { const r = circles.roundPoint(p); return r.x === p.x && r.z === p.z; })
+    && isPlainObject(c.center) && c.center.x === d.center.x && c.center.z === d.center.z
+    && c.radius === d.radius && c.segments === d.segments && c.max_chord_error_m === d.max_chord_error_m;
+  if (!same) throw invalid(`${field}.circle does not match what its definition reproduces`);
+}
+
+/**
+ * The `radial_spoke` record (plan §15.8): strict keys, every one required. Only the radial
+ * constructor writes one; the store refuses a client-supplied record on create, proposal
+ * and patch (store.js), and this shape check keeps every stored record well formed.
+ */
+function checkRadialSpoke(c) {
+  onlyKeys(c, RADIAL_SPOKE_KEYS, 'construction');
+  for (const k of RADIAL_SPOKE_KEYS) if (!present(c[k])) throw invalid(`construction.${k} is required for radial_spoke`);
+  if (c.version !== 1) throw invalid('construction.version must be 1');
+  if (typeof c.construction_id !== 'string' || !c.construction_id || c.construction_id.length > 64) {
+    throw invalid('construction.construction_id must be a non-empty string');
+  }
+  if (!isPlainObject(c.center) || !finiteNumber(c.center.x) || !finiteNumber(c.center.z)) {
+    throw invalid('construction.center must be {x, z}');
+  }
+  onlyKeys(c.center, ['x', 'z'], 'construction.center');
+  const src = c.center_source;
+  if (!isPlainObject(src)) throw invalid('construction.center_source must be an object');
+  oneOf(src.kind, RADIAL_CENTER_SOURCES, 'construction.center_source.kind');
+  if (src.kind === 'coordinate') {
+    onlyKeys(src, ['kind'], 'construction.center_source');
+  } else {
+    onlyKeys(src, ['kind', 'feature_id', 'revision'], 'construction.center_source');
+    checkInputRef({ feature_id: src.feature_id, revision: src.revision }, 'construction.center_source');
+  }
+  checkBoundaryRef(c.inner, 'construction.inner');
+  checkBoundaryRef(c.outer, 'construction.outer');
+  if (!Number.isInteger(c.count) || c.count < 1 || c.count > 360) throw invalid('construction.count must be an integer from 1 to 360');
+  if (!finiteNumber(c.offset_deg) || c.offset_deg < 0 || c.offset_deg >= 360) throw invalid('construction.offset_deg must be in [0, 360)');
+  const omit = c.omit_indices;
+  if (!Array.isArray(omit) || omit.some((v, k) => !Number.isInteger(v) || v < 0 || v >= c.count || (k > 0 && v <= omit[k - 1]))) {
+    throw invalid('construction.omit_indices must be sorted unique indices in [0, count)');
+  }
+  if (!Number.isInteger(c.index) || c.index < 0 || c.index >= c.count || omit.includes(c.index)) {
+    throw invalid('construction.index must be a non-omitted index in [0, count)');
+  }
+  if (!finiteNumber(c.angle_deg) || c.angle_deg < 0 || c.angle_deg >= 360) throw invalid('construction.angle_deg must be in [0, 360)');
+  if (c.angle_convention !== 'deg_from_+x_toward_+z') throw invalid('construction.angle_convention must be "deg_from_+x_toward_+z"');
+}
+
 const checkConstruction = (c) => {
   oneOf(c.type, CONSTRUCTION_TYPES, 'construction.type');
+  if (c.type === 'radial_spoke') checkRadialSpoke(c);
 };
+
+/** Whether a request's construction is a radial spoke record (which only the constructor may write). */
+const isRadialSpoke = (construction) => isPlainObject(construction) && construction.type === 'radial_spoke';
 
 const PROPOSAL_FIELDS = ['source', 'generator', 'generator_version', 'seed', 'input_digest', 'rationale'];
 /** A software proposal must say where it came from (plan §3.1). */
@@ -463,7 +545,10 @@ module.exports = {
   LIFECYCLE_STATES,
   EDITOR_PROVENANCE,
   REPLACEMENT_STATES,
+  STRENGTHS,
+  FEATURE_KINDS,
   SCOPE_RANK,
+  isRadialSpoke,
   DESCRIPTIVE_FIELDS,
   serialize,
   toInput,

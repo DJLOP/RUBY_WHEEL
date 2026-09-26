@@ -207,7 +207,7 @@ Physical islands are accepted land polygons; the land polygon itself is the isla
 
 ## A-020 — Parametric Canonical Construction Is Authoring, Not Generation
 
-Deterministic parametric construction of canonical geometry — such as a radial/spoke-wall constructor that casts `N` rays from a canonical center at `θₙ = θ₀ + n · (360° / N)` and intersects each with the actual accepted inner and outer boundaries — is a canonical-geometry **authoring aid**.
+Deterministic parametric construction of canonical geometry — such as a radial/spoke-wall constructor that casts `N` rays from a canonical center at `θₙ = θ₀ + n · (360° / N)` and intersects each with the actual inner and outer boundaries (accepted canonical geometry, or deterministic rings constructed from explicit, recorded parameters) — is a canonical-geometry **authoring aid**.
 
 It is not procedural city generation, requires no AI, consumes only accepted canonical inputs and explicit parameters, and produces ordinary draft canonical geometry (with its construction parameters recorded) that must be explicitly accepted like any other authored geometry (A-015). It does not bypass lifecycle, lock, or protection rules.
 

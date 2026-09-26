@@ -6,10 +6,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  IDLE_TRACE, addPoint, beginTrace, beginTranslate, closeRing, hitsTraceBody, moveVertex, setMode, translateFrom, translateSnapshot, undoLast,
-  type TraceState,
+  IDLE_TRACE, addPoint, beginTrace, beginTranslate, closeRing, hitsTraceBody, moveVertex, setMode, traceStartFromGeometry, translateConstruction,
+  translateFrom, translateSnapshot, undoLast, type TraceState,
 } from '../tracing';
-import type { CircleConstruction, EllipseConstruction, RectConstruction } from '../geometry';
+import type { CircleConstruction, EllipseConstruction, RadialSpokeConstruction, RectConstruction } from '../geometry';
 
 const square = (): TraceState => closeRing([[0, 0], [10, 0], [10, 10], [0, 10]]
   .reduce((s, [x, z]) => addPoint(s, { x, z }), beginTrace(IDLE_TRACE, { geometryType: 'polygon' })));
@@ -88,6 +88,40 @@ describe('undo', () => {
     const edited = moveVertex(b, 0, { x: -5, z: -5 });
     expect(edited.translateUndo).toEqual([]);
     expect(undoLast(edited).closed).toBe(false); // the ordinary undo: reopen the ring
+  });
+});
+
+describe('radial spoke records (plan §15.8)', () => {
+  const record: RadialSpokeConstruction = {
+    type: 'radial_spoke', version: 1, construction_id: 'c1', center: { x: 0, z: 0 }, center_source: { kind: 'coordinate' },
+    inner: { feature_id: 1, revision: 1 }, outer: { feature_id: 2, revision: 1 }, count: 4, offset_deg: 0, omit_indices: [],
+    index: 0, angle_deg: 0, angle_convention: 'deg_from_+x_toward_+z',
+  };
+  const draftSpoke = () => beginTrace(IDLE_TRACE, traceStartFromGeometry('linestring', [{ x: 50, z: 0 }, { x: 200, z: 0 }], 7, record));
+
+  it('translating a radial spoke clears its record rather than shifting its center', () => {
+    expect(translateConstruction(record, 5, 5)).toBeNull();
+    const s = draftSpoke();
+    expect(s.construction).toEqual(record);
+    const t = move(s, 5, 0);
+    expect(t.vertices).toEqual([{ x: 55, z: 0 }, { x: 205, z: 0 }]);
+    expect(t.construction).toBeNull();
+  });
+
+  it('undoing the move restores the record together with the geometry', () => {
+    const t = move(draftSpoke(), 5, 0);
+    const back = undoLast(t);
+    expect(back.vertices).toEqual([{ x: 50, z: 0 }, { x: 200, z: 0 }]);
+    expect(back.construction).toEqual(record);
+  });
+
+  it('vertex-editing a radial spoke clears its record', () => {
+    expect(moveVertex(draftSpoke(), 1, { x: 210, z: 0 }).construction).toBeNull();
+  });
+
+  it('circle, ellipse and rectangle records still move with their geometry', () => {
+    const c: CircleConstruction = { type: 'circle', center: { x: 1, z: 1 }, radius: 3, method: 'center_radius', segments: 8, max_chord_error_m: 0.25 };
+    expect(translateConstruction(c, 2, 3)).toEqual({ ...c, center: { x: 3, z: 4 } });
   });
 });
 
